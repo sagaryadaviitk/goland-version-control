@@ -10,6 +10,7 @@ import { LocalChangesTreeProvider } from '../../src/treeView';
 
 interface ExtensionApi {
   getWorkspaceState(): {
+    repositories: Array<{ root: string }>;
     changes: Array<{ repoRoot: string; path: string; area: string; category: string }>;
   };
 }
@@ -38,13 +39,26 @@ suite('GoLand Version Control extension', () => {
     assert.ok(commands.includes('golandVersionControl.stage'));
     assert.ok(commands.includes('golandVersionControl.unstage'));
     assert.ok(commands.includes('golandVersionControl.revert'));
+    assert.ok(commands.includes('golandVersionControl.shelve'));
+    assert.ok(commands.includes('golandVersionControl.saveToShelf'));
+    assert.ok(commands.includes('golandVersionControl.createStash'));
   });
 
   test('file nodes expose inline revert context', () => {
     const provider = new LocalChangesTreeProvider(new ChangelistStore(new MemoryMemento() as any));
     provider.update(
       state([gitChange('main.go', 'Changes', 'workingTree', 'modified', 'Modified')]),
-      { showUntracked: false, groupBy: 'changelist', autoRefresh: true, confirmDiscard: true, compareBase: 'HEAD' }
+      {
+        showUntracked: false,
+        groupBy: 'changelist',
+        autoRefresh: true,
+        confirmDiscard: false,
+        debug: false,
+        openDiffAtFirstChange: true,
+        shelfLocation: '',
+        stashIncludeUntracked: true,
+        compareBase: 'HEAD'
+      }
     );
 
     const repoNode = provider.getChildren()[0] as any;
@@ -72,6 +86,7 @@ suite('GoLand Version Control extension', () => {
       await waitFor(() => workspaceContains(repoRoot));
 
       await vscode.commands.executeCommand('golandVersionControl.refresh');
+      await waitFor(() => api.getWorkspaceState().repositories.some((repo) => repo.root === repoRoot));
       fs.writeFileSync(path.join(repoRoot, 'main.go'), 'package main\n\nfunc main() { println("changed") }\n');
       runGit(repoRoot, ['add', 'main.go']);
 

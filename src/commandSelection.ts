@@ -1,5 +1,5 @@
 import { GitChange, changeKey } from './model';
-import { FileNode } from './treeModel';
+import { ChangeTreeNode, FileNode, collectChanges } from './treeModel';
 
 export function resolveSingleChange(input?: unknown): GitChange | undefined {
   if (isFileNode(input)) {
@@ -14,26 +14,23 @@ export function resolveSingleChange(input?: unknown): GitChange | undefined {
 }
 
 export function resolveChanges(input?: unknown, selected?: unknown[]): GitChange[] {
-  const primary = resolveSingleChange(input);
-  const selectedChanges = uniqueChanges((selected ?? []).flatMap((candidate) => {
-    const change = resolveSingleChange(candidate);
-    return change ? [change] : [];
-  }));
+  const primaryChanges = changesFromCandidate(input);
+  const selectedChanges = uniqueChanges((selected ?? []).flatMap(changesFromCandidate));
 
   if (selectedChanges.length === 0) {
-    return primary ? [primary] : [];
+    return primaryChanges;
   }
 
-  if (!primary) {
+  if (primaryChanges.length === 0) {
     return selectedChanges;
   }
 
-  const primaryKey = changeKey(primary);
-  if (selectedChanges.some((change) => changeKey(change) === primaryKey)) {
+  const primaryKeys = new Set(primaryChanges.map(changeKey));
+  if (selectedChanges.some((change) => primaryKeys.has(changeKey(change)))) {
     return selectedChanges;
   }
 
-  return [primary];
+  return primaryChanges;
 }
 
 export function isFileNode(value: unknown): value is FileNode {
@@ -42,6 +39,32 @@ export function isFileNode(value: unknown): value is FileNode {
 
 function isGitChange(value: unknown): value is GitChange {
   return Boolean(value && typeof value === 'object' && typeof (value as { path?: unknown }).path === 'string');
+}
+
+function changesFromCandidate(candidate: unknown): GitChange[] {
+  const change = resolveSingleChange(candidate);
+  if (change) {
+    return [change];
+  }
+
+  if (isChangeTreeNode(candidate)) {
+    return collectChanges(candidate);
+  }
+
+  return [];
+}
+
+function isChangeTreeNode(value: unknown): value is ChangeTreeNode {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const type = (value as { type?: unknown }).type;
+  if (type === 'file') {
+    return isFileNode(value);
+  }
+
+  return (type === 'group' || type === 'repository') && Array.isArray((value as { children?: unknown }).children);
 }
 
 function uniqueChanges(changes: GitChange[]): GitChange[] {

@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { ChangeTreeNode, buildTree, FileNode, RepositoryNode } from './treeModel';
+import { ChangeTreeNode, buildTree, collectChanges, FileNode, RepositoryNode } from './treeModel';
 import { ChangelistStore } from './changelists';
 import { ChangeArea, ChangeKind, ExtensionSettings, GitChange, WorkspaceState } from './model';
 
@@ -48,7 +48,7 @@ function repositoryItem(node: RepositoryNode): vscode.TreeItem {
   const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Expanded);
   item.description = formatCount(node.count);
   item.tooltip = node.repo.root;
-  item.contextValue = 'repository';
+  item.contextValue = contextForContainer('repository', node);
   item.iconPath = new vscode.ThemeIcon('repo');
   return item;
 }
@@ -56,7 +56,7 @@ function repositoryItem(node: RepositoryNode): vscode.TreeItem {
 function groupItem(node: ChangeTreeNode & { type: 'group' }): vscode.TreeItem {
   const item = new vscode.TreeItem(node.label, groupCollapseState(node.label));
   item.description = formatCount(node.count);
-  item.contextValue = 'group';
+  item.contextValue = contextForContainer('group', node);
   item.iconPath = groupIcon(node.label);
   return item;
 }
@@ -117,11 +117,32 @@ function tooltipFor(node: FileNode): string {
 
 function contextFor(node: FileNode): string {
   const contexts = ['change', 'discardable'];
+  if (node.change.area !== 'untracked') {
+    contexts.push('shelvable');
+  }
   if (node.change.area === 'index') {
     contexts.push('unstageable');
   }
   if (node.change.area === 'workingTree' || node.change.area === 'untracked') {
     contexts.push('stageable');
+  }
+  return contexts.join('.');
+}
+
+function contextForContainer(base: string, node: ChangeTreeNode): string {
+  const changes = collectChanges(node);
+  const contexts = [base];
+  if (changes.length > 0) {
+    contexts.push('change', 'discardable');
+  }
+  if (changes.some((change) => change.area === 'workingTree' || change.area === 'untracked')) {
+    contexts.push('stageable');
+  }
+  if (changes.some((change) => change.area === 'index')) {
+    contexts.push('unstageable');
+  }
+  if (changes.some((change) => change.area !== 'untracked')) {
+    contexts.push('shelvable');
   }
   return contexts.join('.');
 }

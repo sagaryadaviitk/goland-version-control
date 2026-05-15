@@ -7,11 +7,13 @@ GoLand Version Control is a VS Code extension that adds a GoLand-inspired local 
 - Dedicated Activity Bar view with no built-in Git commit box clutter
 - Repository and changelist grouping with flat relative file paths
 - Colored Git status badges for unstaged, staged, untracked, deleted, renamed, and conflicted files
-- Auto-refresh when files are saved or Git metadata changes
+- Faster cached repo discovery with targeted refresh when files are saved or Git metadata changes
 - Staged, unstaged, unversioned, renamed, deleted, and conflicted file states
-- Native VS Code side-by-side diff editor integration
-- Stage, unstage, inline revert, open file, open diff, refresh, and change navigation commands
+- Native VS Code side-by-side diff editor integration with first-change navigation
+- Stage, unstage, inline revert, multi-file discard, open file, open diff, refresh, and change navigation commands
 - Workspace-backed custom changelists for organizing local work without changing Git metadata
+- Extension-managed Shelf view for saving patch sets separately from Git metadata
+- Native Git Stash view for creating, applying, popping, dropping, and reviewing stashes
 
 ## Usage
 
@@ -19,13 +21,18 @@ GoLand Version Control is a VS Code extension that adds a GoLand-inspired local 
 2. Open `GoLand Version Control` from the Activity Bar.
 3. Expand `Local Changes`.
 4. Select changed files to open diffs, or use inline/context actions to stage, unstage, discard, or move files to changelists.
+5. Use `Shelf` for IDE-managed patch shelves and `Stash` for native Git stashes.
 
 ## Settings
 
 - `golandVersionControl.showUntracked` defaults to `false` to keep large workspaces clean
 - `golandVersionControl.groupBy`
 - `golandVersionControl.autoRefresh`
-- `golandVersionControl.confirmDiscard`
+- `golandVersionControl.confirmDiscard` defaults to `false`
+- `golandVersionControl.debug`
+- `golandVersionControl.openDiffAtFirstChange`
+- `golandVersionControl.shelfLocation`
+- `golandVersionControl.stashIncludeUntracked`
 - `golandVersionControl.compareBase`
 
 ## Development

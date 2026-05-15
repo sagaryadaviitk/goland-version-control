@@ -92,6 +92,12 @@ export class RefreshCoordinator<TState> implements DisposableLike {
     this.replaceWatchers([]);
   }
 
+  async rebuildWatchersForState(state: TState): Promise<void> {
+    if (!this.disposed) {
+      await this.rebuildWatchers(state);
+    }
+  }
+
   private async refreshLoop(): Promise<void> {
     while (!this.disposed) {
       this.refreshAgain = false;

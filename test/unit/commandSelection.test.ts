@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveChanges } from '../../src/commandSelection';
 import { GitChange } from '../../src/model';
-import { FileNode } from '../../src/treeModel';
+import { FileNode, GroupNode, RepositoryNode } from '../../src/treeModel';
 
 test('uses clicked file when tree selection is stale', () => {
   const clicked = fileNode(change('clicked.go'));
@@ -31,6 +31,27 @@ test('deduplicates selected changes', () => {
   const selected = fileNode(change('same.go'));
 
   assert.deepEqual(resolveChanges(selected, [selected, selected]).map((item) => item.path), ['same.go']);
+});
+
+test('resolves changes from group and repository nodes', () => {
+  const group: GroupNode = {
+    type: 'group',
+    id: 'group:Changes',
+    label: 'Changes',
+    count: 2,
+    children: [fileNode(change('one.go')), fileNode(change('two.go'))]
+  };
+  const repo: RepositoryNode = {
+    type: 'repository',
+    id: 'repo:/repo',
+    label: 'repo',
+    repo: { root: '/repo', name: 'repo' },
+    count: 2,
+    children: [group]
+  };
+
+  assert.deepEqual(resolveChanges(group).map((item) => item.path), ['one.go', 'two.go']);
+  assert.deepEqual(resolveChanges(repo).map((item) => item.path), ['one.go', 'two.go']);
 });
 
 function fileNode(gitChange: GitChange): FileNode {

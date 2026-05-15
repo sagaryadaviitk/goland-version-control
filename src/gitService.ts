@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { buildDiscardPlan } from './gitDiscard';
 import { buildChangeRecords, parsePorcelainStatus } from './gitStatus';
-import { GitChange, RepositoryRef, WorkspaceState } from './model';
+import { GitChange, RepositoryRef, StashEntry, StashFile, WorkspaceState } from './model';
 import { GitWatchRoot } from './refreshCoordinator';
 import { discoverWorkspaceRepositoryRoots, uniqueRepositories } from './repositoryDiscovery';
 
@@ -17,33 +17,58 @@ interface GitApi {
 }
 
 export class GitService {
-  async loadWorkspaceState(showUntracked: boolean): Promise<WorkspaceState> {
-    const repositories = await this.discoverRepositories();
-    const changesByRepository = await Promise.all(
-      repositories.map(async (repo) => this.getChanges(repo, showUntracked))
+  private repositoryCache: RepositoryRef[] | undefined;
+
+  constructor(private readonly log?: (message: string) => void) {}
+
+  clearRepositoryCache(): void {
+    this.repositoryCache = undefined;
+  }
+
+  async loadWorkspaceState(
+    showUntracked: boolean,
+    options: { forceDiscover?: boolean; repoRoots?: string[]; previous?: WorkspaceState; concurrency?: number } = {}
+  ): Promise<WorkspaceState> {
+    const repositories = await this.discoverRepositories(options.forceDiscover);
+    const repoRootSet = options.repoRoots ? new Set(options.repoRoots.map(normalizePath)) : undefined;
+    const targetRepositories = repoRootSet
+      ? repositories.filter((repo) => repoRootSet.has(normalizePath(repo.root)))
+      : repositories;
+    const changesByRepository = await mapLimit(
+      targetRepositories,
+      options.concurrency ?? 4,
+      async (repo) => this.getChanges(repo, showUntracked)
     );
 
-    return {
-      repositories,
-      changes: changesByRepository.flat().sort(compareChanges)
-    };
+    if (repoRootSet && options.previous) {
+      const updatedRoots = new Set(targetRepositories.map((repo) => repo.root));
+      return {
+        repositories,
+        changes: [
+          ...options.previous.changes.filter((change) => !updatedRoots.has(change.repoRoot)),
+          ...changesByRepository.flat()
+        ].sort(compareChanges)
+      };
+    }
+
+    return { repositories, changes: changesByRepository.flat().sort(compareChanges) };
   }
 
   async getChanges(repo: RepositoryRef, showUntracked: boolean): Promise<GitChange[]> {
     const args = ['status', '--porcelain=v1', '-z', showUntracked ? '--untracked-files=all' : '--untracked-files=no'];
-    const output = await runGit(repo.root, args);
+    const output = await runGit(repo.root, args, this.log);
     return buildChangeRecords(repo, parsePorcelainStatus(repo.root, output));
   }
 
   async stage(changes: GitChange[]): Promise<void> {
     await this.runPathCommand(changes, async (repoRoot, paths) => {
-      await runGit(repoRoot, ['add', '--', ...paths]);
+      await runGit(repoRoot, ['add', '--', ...paths], this.log);
     });
   }
 
   async unstage(changes: GitChange[]): Promise<void> {
     await this.runPathCommand(changes.filter((change) => change.area === 'index'), async (repoRoot, paths) => {
-      await runGit(repoRoot, ['reset', '-q', 'HEAD', '--', ...paths]);
+      await runGit(repoRoot, ['reset', '-q', 'HEAD', '--', ...paths], this.log);
     });
   }
 
@@ -54,37 +79,85 @@ export class GitService {
       const plan = buildDiscardPlan(repoChanges);
 
       if (plan.stagedAndWorktreePaths.length > 0) {
-        await runGit(repoRoot, ['restore', '--staged', '--worktree', '--', ...plan.stagedAndWorktreePaths]);
+        await runGit(repoRoot, ['restore', '--staged', '--worktree', '--', ...plan.stagedAndWorktreePaths], this.log);
       }
 
       if (plan.worktreePaths.length > 0) {
-        await runGit(repoRoot, ['restore', '--worktree', '--', ...plan.worktreePaths]);
+        await runGit(repoRoot, ['restore', '--worktree', '--', ...plan.worktreePaths], this.log);
       }
 
       if (plan.cleanPaths.length > 0) {
-        await runGit(repoRoot, ['clean', '-fd', '--', ...plan.cleanPaths]);
+        await runGit(repoRoot, ['clean', '-fd', '--', ...plan.cleanPaths], this.log);
       }
     }
   }
 
   async showFile(repoRoot: string, ref: 'HEAD' | 'INDEX', filePath: string): Promise<string> {
     if (ref === 'INDEX') {
-      return runGit(repoRoot, ['show', `:${filePath}`]);
+      return runGit(repoRoot, ['show', `:${filePath}`], this.log);
     }
 
-    return runGit(repoRoot, ['show', `HEAD:${filePath}`]);
+    return runGit(repoRoot, ['show', `HEAD:${filePath}`], this.log);
   }
 
-  async discoverRepositories(): Promise<RepositoryRef[]> {
+  async getHeadCommit(repoRoot: string): Promise<string> {
+    return (await runGit(repoRoot, ['rev-parse', 'HEAD'], this.log)).trim();
+  }
+
+  async diffAgainstHead(repoRoot: string, paths: string[]): Promise<string> {
+    return runGit(repoRoot, ['diff', '--binary', 'HEAD', '--', ...paths], this.log);
+  }
+
+  async applyPatch(repoRoot: string, patchPath: string): Promise<void> {
+    await runGit(repoRoot, ['apply', '--3way', '--whitespace=nowarn', patchPath], this.log);
+  }
+
+  async listStashes(repositories?: RepositoryRef[]): Promise<StashEntry[]> {
+    const repos = repositories ?? await this.discoverRepositories();
+    const entries = await mapLimit(repos, 4, async (repo) => this.listRepoStashes(repo));
+    return entries.flat();
+  }
+
+  async createStash(repoRoot: string, message: string, includeUntracked: boolean): Promise<void> {
+    const args = ['stash', 'push'];
+    if (includeUntracked) {
+      args.push('-u');
+    }
+    args.push('-m', message);
+    await runGit(repoRoot, args, this.log);
+  }
+
+  async applyStash(stash: StashEntry): Promise<void> {
+    await runGit(stash.repoRoot, ['stash', 'apply', stash.ref], this.log);
+  }
+
+  async popStash(stash: StashEntry): Promise<void> {
+    await runGit(stash.repoRoot, ['stash', 'pop', stash.ref], this.log);
+  }
+
+  async dropStash(stash: StashEntry): Promise<void> {
+    await runGit(stash.repoRoot, ['stash', 'drop', stash.ref], this.log);
+  }
+
+  async showStashPatch(stash: StashEntry): Promise<string> {
+    return runGit(stash.repoRoot, ['stash', 'show', '-p', '--binary', stash.ref], this.log);
+  }
+
+  async discoverRepositories(force = false): Promise<RepositoryRef[]> {
+    if (!force && this.repositoryCache) {
+      return this.repositoryCache;
+    }
+
     const [gitApiRepos, workspaceRepos] = await Promise.all([
       this.discoverViaGitExtension(),
       this.discoverViaWorkspaceFolders()
     ]);
 
-    return uniqueRepositories([
+    this.repositoryCache = uniqueRepositories([
       ...gitApiRepos.map((repo) => repo.root),
       ...workspaceRepos.map((repo) => repo.root)
     ]);
+    return this.repositoryCache;
   }
 
   async getGitWatchRoots(repositories: RepositoryRef[]): Promise<GitWatchRoot[]> {
@@ -97,8 +170,8 @@ export class GitService {
   private async getGitWatchRoot(repo: RepositoryRef): Promise<GitWatchRoot | undefined> {
     try {
       const [gitDir, commonDir] = await Promise.all([
-        runGit(repo.root, ['rev-parse', '--git-dir']),
-        runGit(repo.root, ['rev-parse', '--git-common-dir'])
+        runGit(repo.root, ['rev-parse', '--git-dir'], this.log),
+        runGit(repo.root, ['rev-parse', '--git-common-dir'], this.log)
       ]);
 
       return {
@@ -111,15 +184,19 @@ export class GitService {
   }
 
   private async discoverViaGitExtension(): Promise<RepositoryRef[]> {
-    const extension = vscode.extensions.getExtension<GitExtension>('vscode.git');
-    if (!extension) {
+    try {
+      const extension = vscode.extensions.getExtension<GitExtension>('vscode.git');
+      if (!extension) {
+        return [];
+      }
+
+      const api = extension.isActive ? extension.exports.getAPI(1) : (await extension.activate()).getAPI(1);
+      return uniqueRepositories(
+        api.repositories.map((repo) => repo.rootUri.fsPath)
+      );
+    } catch {
       return [];
     }
-
-    const api = extension.isActive ? extension.exports.getAPI(1) : (await extension.activate()).getAPI(1);
-    return uniqueRepositories(
-      api.repositories.map((repo) => repo.rootUri.fsPath)
-    );
   }
 
   private async discoverViaWorkspaceFolders(): Promise<RepositoryRef[]> {
@@ -141,11 +218,41 @@ export class GitService {
       await execute(repoRoot, repoChanges.map((change) => change.path));
     }
   }
+
+  private async listRepoStashes(repo: RepositoryRef): Promise<StashEntry[]> {
+    const output = await runGit(repo.root, ['stash', 'list', '--format=%gd%x1f%H%x1f%ct%x1f%s'], this.log);
+    const lines = output.split(/\r?\n/).filter(Boolean);
+    return Promise.all(lines.map(async (line) => {
+      const [ref, hash, createdAtSeconds, ...messageParts] = line.split('\x1f');
+      const message = messageParts.join('\x1f');
+      return {
+        repoRoot: repo.root,
+        repoName: repo.name,
+        ref,
+        hash,
+        createdAt: new Date(Number(createdAtSeconds) * 1000).toISOString(),
+        message,
+        files: await this.listStashFiles(repo.root, ref)
+      };
+    }));
+  }
+
+  private async listStashFiles(repoRoot: string, ref: string): Promise<StashFile[]> {
+    const output = await runGit(repoRoot, ['stash', 'show', '--name-status', ref], this.log);
+    return output.split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const [status, ...pathParts] = line.split(/\s+/);
+        return { status, path: pathParts.join(' ') };
+      });
+  }
 }
 
-export function runGit(repoRoot: string, args: string[]): Promise<string> {
+export function runGit(repoRoot: string, args: string[], log?: (message: string) => void): Promise<string> {
   return new Promise((resolve, reject) => {
+    const start = Date.now();
     cp.execFile('git', ['-C', repoRoot, ...args], { encoding: 'utf8', maxBuffer: 25 * 1024 * 1024 }, (error, stdout, stderr) => {
+      log?.(`git -C ${repoRoot} ${args.join(' ')} (${Date.now() - start}ms)`);
       if (error) {
         reject(new Error((stderr || error.message).trim()));
         return;
@@ -206,6 +313,24 @@ async function tryGitRoot(candidate: string): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function normalizePath(value: string): string {
+  return path.resolve(value);
 }
 
 async function immediateChildren(folder: string): Promise<string[]> {

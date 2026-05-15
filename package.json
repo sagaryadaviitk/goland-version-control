@@ -1,8 +1,8 @@
 {
   "name": "goland-version-control",
   "displayName": "GoLand Version Control",
-  "description": "A GoLand-inspired local changes view for reviewing, grouping, staging, and discarding Git changes in VS Code.",
-  "version": "0.1.1",
+  "description": "A GoLand-inspired local changes, shelf, and stash workflow for Git changes in VS Code.",
+  "version": "0.2.0",
   "publisher": "sagaryadaviitk",
   "license": "MIT",
   "repository": {
@@ -34,10 +34,15 @@
   "activationEvents": [
     "onStartupFinished",
     "onView:golandVersionControl.localChanges",
+    "onView:golandVersionControl.shelf",
+    "onView:golandVersionControl.stash",
     "onCommand:golandVersionControl.refresh",
     "onCommand:golandVersionControl.openDiff",
     "onCommand:golandVersionControl.nextChange",
-    "onCommand:golandVersionControl.previousChange"
+    "onCommand:golandVersionControl.previousChange",
+    "onCommand:golandVersionControl.shelve",
+    "onCommand:golandVersionControl.saveToShelf",
+    "onCommand:golandVersionControl.createStash"
   ],
   "files": [
     "dist/**",
@@ -62,6 +67,16 @@
         {
           "id": "golandVersionControl.localChanges",
           "name": "Local Changes",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "id": "golandVersionControl.shelf",
+          "name": "Shelf",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "id": "golandVersionControl.stash",
+          "name": "Stash",
           "when": "workspaceFolderCount > 0"
         }
       ]
@@ -104,17 +119,17 @@
       },
       {
         "command": "golandVersionControl.stage",
-        "title": "GoLand Version Control: Stage",
+        "title": "GoLand Version Control: Stage Selected",
         "icon": "$(add)"
       },
       {
         "command": "golandVersionControl.unstage",
-        "title": "GoLand Version Control: Unstage",
+        "title": "GoLand Version Control: Unstage Selected",
         "icon": "$(remove)"
       },
       {
         "command": "golandVersionControl.discard",
-        "title": "GoLand Version Control: Discard",
+        "title": "GoLand Version Control: Discard Selected Changes",
         "icon": "$(discard)"
       },
       {
@@ -131,6 +146,71 @@
         "command": "golandVersionControl.moveToChangelist",
         "title": "GoLand Version Control: Move to Changelist",
         "icon": "$(folder-active)"
+      },
+      {
+        "command": "golandVersionControl.shelve",
+        "title": "GoLand Version Control: Shelve Selected",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "golandVersionControl.saveToShelf",
+        "title": "GoLand Version Control: Save Selected to Shelf",
+        "icon": "$(save)"
+      },
+      {
+        "command": "golandVersionControl.unshelve",
+        "title": "GoLand Version Control: Unshelve",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "golandVersionControl.restoreShelf",
+        "title": "GoLand Version Control: Restore Shelf",
+        "icon": "$(repo-pull)"
+      },
+      {
+        "command": "golandVersionControl.deleteShelf",
+        "title": "GoLand Version Control: Delete Shelf",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "golandVersionControl.openShelfDiff",
+        "title": "GoLand Version Control: Open Shelf Diff",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "golandVersionControl.refreshShelf",
+        "title": "GoLand Version Control: Refresh Shelf",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "golandVersionControl.createStash",
+        "title": "GoLand Version Control: Create Stash",
+        "icon": "$(repo-push)"
+      },
+      {
+        "command": "golandVersionControl.applyStash",
+        "title": "GoLand Version Control: Apply Stash",
+        "icon": "$(repo-pull)"
+      },
+      {
+        "command": "golandVersionControl.popStash",
+        "title": "GoLand Version Control: Pop Stash",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "golandVersionControl.dropStash",
+        "title": "GoLand Version Control: Drop Stash",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "golandVersionControl.openStashDiff",
+        "title": "GoLand Version Control: Open Stash Diff",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "golandVersionControl.refreshStash",
+        "title": "GoLand Version Control: Refresh Stash",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -149,6 +229,21 @@
           "command": "golandVersionControl.nextFile",
           "when": "view == golandVersionControl.localChanges",
           "group": "navigation@3"
+        },
+        {
+          "command": "golandVersionControl.refreshShelf",
+          "when": "view == golandVersionControl.shelf",
+          "group": "navigation@1"
+        },
+        {
+          "command": "golandVersionControl.createStash",
+          "when": "view == golandVersionControl.stash",
+          "group": "navigation@1"
+        },
+        {
+          "command": "golandVersionControl.refreshStash",
+          "when": "view == golandVersionControl.stash",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -178,14 +273,64 @@
           "group": "navigation@1"
         },
         {
+          "command": "golandVersionControl.shelve",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /shelvable/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "golandVersionControl.saveToShelf",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /shelvable/",
+          "group": "navigation@3"
+        },
+        {
           "command": "golandVersionControl.moveToChangelist",
           "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
-          "group": "navigation@2"
+          "group": "navigation@4"
         },
         {
           "command": "golandVersionControl.discard",
           "when": "view == golandVersionControl.localChanges && viewItem =~ /discardable/",
-          "group": "navigation@3"
+          "group": "navigation@5"
+        },
+        {
+          "command": "golandVersionControl.openShelfDiff",
+          "when": "view == golandVersionControl.shelf && viewItem == shelf",
+          "group": "inline@1"
+        },
+        {
+          "command": "golandVersionControl.unshelve",
+          "when": "view == golandVersionControl.shelf && viewItem == shelf",
+          "group": "inline@2"
+        },
+        {
+          "command": "golandVersionControl.restoreShelf",
+          "when": "view == golandVersionControl.shelf && viewItem == shelf",
+          "group": "navigation@1"
+        },
+        {
+          "command": "golandVersionControl.deleteShelf",
+          "when": "view == golandVersionControl.shelf && viewItem == shelf",
+          "group": "navigation@2"
+        },
+        {
+          "command": "golandVersionControl.openStashDiff",
+          "when": "view == golandVersionControl.stash && viewItem == stash",
+          "group": "inline@1"
+        },
+        {
+          "command": "golandVersionControl.applyStash",
+          "when": "view == golandVersionControl.stash && viewItem == stash",
+          "group": "inline@2"
+        },
+        {
+          "command": "golandVersionControl.popStash",
+          "when": "view == golandVersionControl.stash && viewItem == stash",
+          "group": "navigation@1"
+        },
+        {
+          "command": "golandVersionControl.dropStash",
+          "when": "view == golandVersionControl.stash && viewItem == stash",
+          "group": "navigation@2"
         }
       ],
       "commandPalette": [
@@ -212,6 +357,45 @@
         },
         {
           "command": "golandVersionControl.moveToChangelist"
+        },
+        {
+          "command": "golandVersionControl.shelve"
+        },
+        {
+          "command": "golandVersionControl.saveToShelf"
+        },
+        {
+          "command": "golandVersionControl.unshelve"
+        },
+        {
+          "command": "golandVersionControl.restoreShelf"
+        },
+        {
+          "command": "golandVersionControl.deleteShelf"
+        },
+        {
+          "command": "golandVersionControl.openShelfDiff"
+        },
+        {
+          "command": "golandVersionControl.refreshShelf"
+        },
+        {
+          "command": "golandVersionControl.createStash"
+        },
+        {
+          "command": "golandVersionControl.applyStash"
+        },
+        {
+          "command": "golandVersionControl.popStash"
+        },
+        {
+          "command": "golandVersionControl.dropStash"
+        },
+        {
+          "command": "golandVersionControl.openStashDiff"
+        },
+        {
+          "command": "golandVersionControl.refreshStash"
         }
       ]
     },
@@ -254,8 +438,28 @@
         },
         "golandVersionControl.confirmDiscard": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Ask for confirmation before discarding local changes."
+        },
+        "golandVersionControl.debug": {
+          "type": "boolean",
+          "default": false,
+          "description": "Write refresh and Git command timing to the GoLand Version Control output channel."
+        },
+        "golandVersionControl.openDiffAtFirstChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "Jump to the first changed hunk after opening a local change diff."
+        },
+        "golandVersionControl.shelfLocation": {
+          "type": "string",
+          "default": "",
+          "description": "Optional absolute folder for extension-managed shelf patch storage. Empty uses VS Code workspace storage."
+        },
+        "golandVersionControl.stashIncludeUntracked": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include untracked files when creating Git stashes from the Stash view."
         },
         "golandVersionControl.compareBase": {
           "type": "string",

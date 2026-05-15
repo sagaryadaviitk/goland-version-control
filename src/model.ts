@@ -46,7 +46,50 @@ export interface ExtensionSettings {
   groupBy: 'changelist' | 'status' | 'folder';
   autoRefresh: boolean;
   confirmDiscard: boolean;
+  debug: boolean;
+  openDiffAtFirstChange: boolean;
+  shelfLocation: string;
+  stashIncludeUntracked: boolean;
   compareBase: 'HEAD';
+}
+
+export interface ShelfFile {
+  path: string;
+  originalPath?: string;
+  statusText: string;
+}
+
+export interface ShelfEntry {
+  id: string;
+  name: string;
+  repoRoot: string;
+  repoName: string;
+  baseCommit: string;
+  createdAt: string;
+  updatedAt: string;
+  fileCount: number;
+  patchPath: string;
+  files: ShelfFile[];
+}
+
+export interface ShelfIndex {
+  version: 1;
+  shelves: ShelfEntry[];
+}
+
+export interface StashFile {
+  path: string;
+  status: string;
+}
+
+export interface StashEntry {
+  repoRoot: string;
+  repoName: string;
+  ref: string;
+  message: string;
+  hash: string;
+  createdAt: string;
+  files: StashFile[];
 }
 
 export const DEFAULT_CHANGELISTS = {

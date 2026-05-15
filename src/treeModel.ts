@@ -70,6 +70,14 @@ export function buildTree(state: WorkspaceState, changelists: ChangelistStore, g
   return [...repos.values()].filter((repo) => repo.children.length > 0);
 }
 
+export function collectChanges(node: ChangeTreeNode): GitChange[] {
+  if (node.type === 'file') {
+    return [node.change];
+  }
+
+  return node.children.flatMap((child) => collectChanges(child));
+}
+
 function groupLabels(change: GitChange, changelists: ChangelistStore, groupBy: string): string[] {
   if (groupBy === 'status') {
     return [change.statusText];
