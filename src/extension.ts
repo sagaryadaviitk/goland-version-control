@@ -5,9 +5,10 @@ import { ChangelistStore } from './changelists';
 import { resolveChanges, resolveSingleChange } from './commandSelection';
 import { registerDiffProvider, openWorkingFile } from './diffProvider';
 import { GitService } from './gitService';
-import { ExtensionSettings, GitChange, ShelfEntry, StashEntry, WorkspaceState } from './model';
+import { ExtensionSettings, GitChange, ShelfEntry, StashEntry, WorkspaceState, changeKey } from './model';
 import { DisposableLike, RefreshCoordinator } from './refreshCoordinator';
 import { ReviewSession } from './reviewSession';
+import { SelectedChangesTreeProvider } from './selectedChangesView';
 import { ShelfService } from './shelfService';
 import { ShelfTreeProvider } from './shelfView';
 import { StashTreeProvider } from './stashView';
@@ -30,6 +31,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   const git = new GitService(log);
   const changelists = new ChangelistStore(context.workspaceState);
   const treeProvider = new LocalChangesTreeProvider(changelists);
+  const selectedProvider = new SelectedChangesTreeProvider();
   const shelfProvider = new ShelfTreeProvider();
   const stashProvider = new StashTreeProvider();
   const decorationProvider = new ChangeDecorationProvider();
@@ -37,11 +39,16 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   const diffController = registerDiffProvider(context, git);
   const shelfService = new ShelfService(context, git, readSettings);
   let refreshVersion = 0;
+  let selectedChanges: GitChange[] = [];
 
   const tree = vscode.window.createTreeView('golandVersionControl.localChanges', {
     treeDataProvider: treeProvider,
     showCollapseAll: true,
     canSelectMany: true
+  });
+  const selectedTree = vscode.window.createTreeView('golandVersionControl.selectedChanges', {
+    treeDataProvider: selectedProvider,
+    showCollapseAll: true
   });
   const shelfTree = vscode.window.createTreeView('golandVersionControl.shelf', {
     treeDataProvider: shelfProvider,
@@ -52,11 +59,51 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
     showCollapseAll: true
   });
 
+  const updateSelectedChanges = (changes: GitChange[]): void => {
+    selectedChanges = changes;
+    selectedProvider.update(changes);
+    const hasMultiSelection = changes.length > 1;
+    void vscode.commands.executeCommand('setContext', 'golandVersionControl.hasMultiSelection', hasMultiSelection);
+    void vscode.commands.executeCommand(
+      'setContext',
+      'golandVersionControl.selectedStageable',
+      hasMultiSelection && changes.some((change) => change.area === 'workingTree' || change.area === 'untracked')
+    );
+    void vscode.commands.executeCommand(
+      'setContext',
+      'golandVersionControl.selectedUnstageable',
+      hasMultiSelection && changes.some((change) => change.area === 'index')
+    );
+    void vscode.commands.executeCommand(
+      'setContext',
+      'golandVersionControl.selectedShelvable',
+      hasMultiSelection && changes.some((change) => change.area !== 'untracked')
+    );
+  };
+
+  const syncSelectedChangesWithState = (): void => {
+    if (selectedChanges.length === 0) {
+      updateSelectedChanges([]);
+      return;
+    }
+
+    const current = new Map(workspaceState.changes.map((change) => [changeKey(change), change]));
+    updateSelectedChanges(selectedChanges
+      .map((change) => current.get(changeKey(change)))
+      .filter(isDefined));
+  };
+
+  const commandChanges = (input?: unknown, selected?: unknown[]): GitChange[] => {
+    const changes = resolveChanges(input, selected);
+    return changes.length > 0 ? changes : selectedChanges;
+  };
+
   const applyWorkspaceState = (): void => {
     const settings = readSettings();
     treeProvider.update(workspaceState, settings);
     decorationProvider.refresh();
     reviewSession.update(workspaceState);
+    syncSelectedChangesWithState();
     tree.badge = workspaceState.changes.length > 0
       ? { value: workspaceState.changes.length, tooltip: `${workspaceState.changes.length} local changes` }
       : undefined;
@@ -150,7 +197,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   };
 
   const revertChanges = async (input?: unknown, selected?: unknown[]) => {
-    const changes = resolveChanges(input, selected);
+    const changes = commandChanges(input, selected);
     if (changes.length === 0) {
       void vscode.window.showInformationMessage('No local change selected.');
       return;
@@ -163,7 +210,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   };
 
   const createShelf = async (input: unknown, selected: unknown[] | undefined, removeAfterSave: boolean) => {
-    const changes = resolveChanges(input, selected);
+    const changes = commandChanges(input, selected);
     if (changes.length === 0) {
       void vscode.window.showInformationMessage('No local change selected.');
       return;
@@ -192,6 +239,29 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
       void vscode.window.showInformationMessage(`Skipped ${result.skippedUntracked.length} untracked file(s); shelves store tracked changes only.`);
     }
   };
+
+  const createSelectedStash = async (input: unknown, selected: unknown[] | undefined) => {
+    const changes = commandChanges(input, selected);
+    if (changes.length === 0) {
+      void vscode.window.showInformationMessage('No local change selected.');
+      return;
+    }
+
+    const message = await vscode.window.showInputBox({
+      title: 'Stash Selected Changes',
+      prompt: 'Stash message',
+      value: `WIP ${new Date().toLocaleString()}`,
+      ignoreFocusOut: true
+    });
+    if (!message) {
+      return;
+    }
+
+    await git.createStashForChanges(changes, message, readSettings().stashIncludeUntracked);
+    await refreshChangedRepos(changes);
+    await refreshStash();
+  };
+
   const resolveShelfOrPick = async (input: unknown): Promise<ShelfEntry | undefined> =>
     resolveShelf(input) ?? pickShelf(await shelfService.listShelves());
   const resolveStashOrPick = async (input: unknown): Promise<StashEntry | undefined> =>
@@ -225,11 +295,15 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   context.subscriptions.push(
     output,
     tree,
+    selectedTree,
     shelfTree,
     stashTree,
     refreshCoordinator,
     { dispose: () => disposeRepoTimers(repoTimers) },
     vscode.window.registerFileDecorationProvider(decorationProvider),
+    tree.onDidChangeSelection((event) => {
+      updateSelectedChanges(resolveChanges(undefined, [...event.selection]));
+    }),
     command('golandVersionControl.refresh', manualRefresh),
     command('golandVersionControl.openDiff', async (input?: unknown) => {
       const change = resolveSingleChange(input);
@@ -267,7 +341,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
       }
     }),
     command('golandVersionControl.stage', async (input?: unknown, selected?: unknown[]) => {
-      const changes = resolveChanges(input, selected).filter((change) => change.area === 'workingTree' || change.area === 'untracked');
+      const changes = commandChanges(input, selected).filter((change) => change.area === 'workingTree' || change.area === 'untracked');
       if (changes.length === 0) {
         return;
       }
@@ -275,7 +349,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
       await refreshChangedRepos(changes);
     }),
     command('golandVersionControl.unstage', async (input?: unknown, selected?: unknown[]) => {
-      const changes = resolveChanges(input, selected).filter((change) => change.area === 'index');
+      const changes = commandChanges(input, selected).filter((change) => change.area === 'index');
       if (changes.length === 0) {
         return;
       }
@@ -289,6 +363,9 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
     }),
     command('golandVersionControl.saveToShelf', async (input?: unknown, selected?: unknown[]) => {
       await createShelf(input, selected, false);
+    }),
+    command('golandVersionControl.stashSelected', async (input?: unknown, selected?: unknown[]) => {
+      await createSelectedStash(input, selected);
     }),
     command('golandVersionControl.refreshShelf', refreshShelf),
     command('golandVersionControl.unshelve', async (input?: unknown) => {
@@ -581,6 +658,10 @@ function disposeRepoTimers(timers: Map<string, ReturnType<typeof setTimeout>>): 
 
 function messageFrom(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
 }
 
 function createGitWatcher(basePath: string, pattern: string, onEvent: () => void): DisposableLike {

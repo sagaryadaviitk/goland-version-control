@@ -116,7 +116,7 @@ function tooltipFor(node: FileNode): string {
 }
 
 function contextFor(node: FileNode): string {
-  const contexts = ['change', 'discardable'];
+  const contexts = ['change', 'discardable', 'stashable'];
   if (node.change.area !== 'untracked') {
     contexts.push('shelvable');
   }
@@ -133,7 +133,7 @@ function contextForContainer(base: string, node: ChangeTreeNode): string {
   const changes = collectChanges(node);
   const contexts = [base];
   if (changes.length > 0) {
-    contexts.push('change', 'discardable');
+    contexts.push('change', 'discardable', 'stashable');
   }
   if (changes.some((change) => change.area === 'workingTree' || change.area === 'untracked')) {
     contexts.push('stageable');

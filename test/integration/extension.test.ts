@@ -41,10 +41,11 @@ suite('GoLand Version Control extension', () => {
     assert.ok(commands.includes('golandVersionControl.revert'));
     assert.ok(commands.includes('golandVersionControl.shelve'));
     assert.ok(commands.includes('golandVersionControl.saveToShelf'));
+    assert.ok(commands.includes('golandVersionControl.stashSelected'));
     assert.ok(commands.includes('golandVersionControl.createStash'));
   });
 
-  test('file nodes expose inline revert context', () => {
+  test('file nodes expose inline shelf, stash, and revert context', () => {
     const provider = new LocalChangesTreeProvider(new ChangelistStore(new MemoryMemento() as any));
     provider.update(
       state([gitChange('main.go', 'Changes', 'workingTree', 'modified', 'Modified')]),
@@ -67,6 +68,8 @@ suite('GoLand Version Control extension', () => {
     const treeItem = provider.getTreeItem(fileNode);
 
     assert.match(String(treeItem.contextValue), /discardable/);
+    assert.match(String(treeItem.contextValue), /shelvable/);
+    assert.match(String(treeItem.contextValue), /stashable/);
   });
 
   test('refreshes automatically when a repository index changes', async function () {

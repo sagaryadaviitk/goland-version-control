@@ -127,6 +127,24 @@ export class GitService {
     await runGit(repoRoot, args, this.log);
   }
 
+  async createStashForChanges(changes: GitChange[], message: string, includeUntracked: boolean): Promise<void> {
+    const byRepo = groupPathsByRepo(changes);
+
+    for (const [repoRoot, repoChanges] of byRepo) {
+      const paths = uniquePaths(repoChanges.flatMap(pathsKnownToGit));
+      if (paths.length === 0) {
+        continue;
+      }
+
+      const args = ['stash', 'push'];
+      if (includeUntracked) {
+        args.push('-u');
+      }
+      args.push('-m', message, '--', ...paths);
+      await runGit(repoRoot, args, this.log);
+    }
+  }
+
   async applyStash(stash: StashEntry): Promise<void> {
     await runGit(stash.repoRoot, ['stash', 'apply', stash.ref], this.log);
   }
@@ -293,6 +311,14 @@ function groupPathsByRepo(changes: GitChange[]): Map<string, GitChange[]> {
     byRepo.set(change.repoRoot, existing);
   }
   return byRepo;
+}
+
+function pathsKnownToGit(change: GitChange): string[] {
+  return [change.path, change.originalPath].filter(isDefined);
+}
+
+function uniquePaths(paths: string[]): string[] {
+  return [...new Set(paths)];
 }
 
 function isDefined<T>(value: T | undefined): value is T {

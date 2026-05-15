@@ -2,7 +2,7 @@
   "name": "goland-version-control",
   "displayName": "GoLand Version Control",
   "description": "A GoLand-inspired local changes, shelf, and stash workflow for Git changes in VS Code.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "sagaryadaviitk",
   "license": "MIT",
   "repository": {
@@ -34,6 +34,7 @@
   "activationEvents": [
     "onStartupFinished",
     "onView:golandVersionControl.localChanges",
+    "onView:golandVersionControl.selectedChanges",
     "onView:golandVersionControl.shelf",
     "onView:golandVersionControl.stash",
     "onCommand:golandVersionControl.refresh",
@@ -42,6 +43,7 @@
     "onCommand:golandVersionControl.previousChange",
     "onCommand:golandVersionControl.shelve",
     "onCommand:golandVersionControl.saveToShelf",
+    "onCommand:golandVersionControl.stashSelected",
     "onCommand:golandVersionControl.createStash"
   ],
   "files": [
@@ -68,6 +70,11 @@
           "id": "golandVersionControl.localChanges",
           "name": "Local Changes",
           "when": "workspaceFolderCount > 0"
+        },
+        {
+          "id": "golandVersionControl.selectedChanges",
+          "name": "Selected Changes",
+          "when": "workspaceFolderCount > 0 && golandVersionControl.hasMultiSelection"
         },
         {
           "id": "golandVersionControl.shelf",
@@ -158,6 +165,11 @@
         "icon": "$(save)"
       },
       {
+        "command": "golandVersionControl.stashSelected",
+        "title": "GoLand Version Control: Stash Selected",
+        "icon": "$(repo-push)"
+      },
+      {
         "command": "golandVersionControl.unshelve",
         "title": "GoLand Version Control: Unshelve",
         "icon": "$(cloud-download)"
@@ -231,6 +243,31 @@
           "group": "navigation@3"
         },
         {
+          "command": "golandVersionControl.stage",
+          "when": "view == golandVersionControl.selectedChanges && golandVersionControl.selectedStageable",
+          "group": "navigation@1"
+        },
+        {
+          "command": "golandVersionControl.unstage",
+          "when": "view == golandVersionControl.selectedChanges && golandVersionControl.selectedUnstageable",
+          "group": "navigation@1"
+        },
+        {
+          "command": "golandVersionControl.shelve",
+          "when": "view == golandVersionControl.selectedChanges && golandVersionControl.selectedShelvable",
+          "group": "navigation@2"
+        },
+        {
+          "command": "golandVersionControl.stashSelected",
+          "when": "view == golandVersionControl.selectedChanges",
+          "group": "navigation@3"
+        },
+        {
+          "command": "golandVersionControl.discard",
+          "when": "view == golandVersionControl.selectedChanges",
+          "group": "navigation@4"
+        },
+        {
           "command": "golandVersionControl.refreshShelf",
           "when": "view == golandVersionControl.shelf",
           "group": "navigation@1"
@@ -248,24 +285,29 @@
       ],
       "view/item/context": [
         {
-          "command": "golandVersionControl.openDiff",
-          "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
-          "group": "inline@1"
-        },
-        {
           "command": "golandVersionControl.stage",
           "when": "view == golandVersionControl.localChanges && viewItem =~ /stageable/",
-          "group": "inline@2"
+          "group": "inline@1"
         },
         {
           "command": "golandVersionControl.unstage",
           "when": "view == golandVersionControl.localChanges && viewItem =~ /unstageable/",
+          "group": "inline@1"
+        },
+        {
+          "command": "golandVersionControl.shelve",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /shelvable/",
           "group": "inline@2"
+        },
+        {
+          "command": "golandVersionControl.stashSelected",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /stashable/",
+          "group": "inline@3"
         },
         {
           "command": "golandVersionControl.revert",
           "when": "view == golandVersionControl.localChanges && viewItem =~ /discardable/",
-          "group": "inline@3"
+          "group": "inline@4"
         },
         {
           "command": "golandVersionControl.openFile",
@@ -363,6 +405,9 @@
         },
         {
           "command": "golandVersionControl.saveToShelf"
+        },
+        {
+          "command": "golandVersionControl.stashSelected"
         },
         {
           "command": "golandVersionControl.unshelve"

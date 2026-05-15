@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Removed the redundant inline Open Diff button from local change rows.
+- Added visible inline Shelve Selected and Stash Selected actions for file, group, and repository rows.
+- Added selected-path Git stash creation so individual files can be moved to a native Git stash.
+- Added a Selected Changes panel that appears for multi-selection with Stage, Unstage, Shelve, Stash, and Discard actions.
+
 ## 0.2.0
 
 - Added separate Shelf and Stash views.
