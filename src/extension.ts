@@ -400,7 +400,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
       if (!shelf) {
         return;
       }
-      await shelfService.restoreShelf(shelf, true);
+      await shelfService.restoreShelf(shelf, false);
       await refreshShelf();
       await refreshRepoNow(shelf.repoRoot);
     }),

@@ -115,13 +115,28 @@ export class GitService {
     return runGit(repoRoot, ['diff', '--binary', 'HEAD', '--', ...paths], this.log);
   }
 
-  async applyPatch(repoRoot: string, patchPath: string): Promise<void> {
+  async applyPatch(repoRoot: string, patchPath: string, paths: string[] = []): Promise<void> {
+    try {
+      await runGit(repoRoot, ['apply', '--whitespace=nowarn', patchPath], this.log);
+      return;
+    } catch (error) {
+      this.log?.(`git apply working-tree failed for ${repoRoot}: ${messageFrom(error)}`);
+    }
+
     await runGit(repoRoot, ['apply', '--3way', '--whitespace=nowarn', patchPath], this.log);
+    await this.unstageAppliedPatchPaths(repoRoot, paths);
   }
 
   async listStashes(repositories?: RepositoryRef[]): Promise<StashEntry[]> {
     const repos = repositories ?? await this.discoverRepositories();
-    const entries = await mapLimit(repos, 4, async (repo) => this.listRepoStashes(repo));
+    const entries = await mapLimit(repos, 4, async (repo) => {
+      try {
+        return await this.listRepoStashes(repo);
+      } catch (error) {
+        this.log?.(`git stash list failed for ${repo.root}: ${messageFrom(error)}`);
+        return [];
+      }
+    });
     return entries.flat();
   }
 
@@ -275,6 +290,19 @@ export class GitService {
         const [status, ...pathParts] = line.split(/\s+/);
         return { status, path: pathParts.join(' ') };
       });
+  }
+
+  private async unstageAppliedPatchPaths(repoRoot: string, paths: string[]): Promise<void> {
+    const unique = uniquePaths(paths);
+    if (unique.length === 0) {
+      return;
+    }
+
+    try {
+      await runGit(repoRoot, ['reset', '-q', 'HEAD', '--', ...unique], this.log);
+    } catch (error) {
+      this.log?.(`git reset after patch apply failed for ${repoRoot}: ${messageFrom(error)}`);
+    }
   }
 }
 

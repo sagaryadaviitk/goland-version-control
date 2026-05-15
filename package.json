@@ -2,7 +2,7 @@
   "name": "goland-version-control",
   "displayName": "GoLand Version Control",
   "description": "A GoLand-inspired local changes, shelf, and stash workflow for Git changes in VS Code.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "publisher": "sagaryadaviitk",
   "license": "MIT",
   "repository": {
@@ -171,7 +171,7 @@
       },
       {
         "command": "golandVersionControl.unshelve",
-        "title": "GoLand Version Control: Unshelve",
+        "title": "GoLand Version Control: Apply Shelf",
         "icon": "$(cloud-download)"
       },
       {
@@ -343,6 +343,11 @@
           "command": "golandVersionControl.unshelve",
           "when": "view == golandVersionControl.shelf && viewItem =~ /shelf/",
           "group": "inline@2"
+        },
+        {
+          "command": "golandVersionControl.deleteShelf",
+          "when": "view == golandVersionControl.shelf && viewItem =~ /shelf/",
+          "group": "inline@3"
         },
         {
           "command": "golandVersionControl.restoreShelf",

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.5
+
+- Added a visible inline Delete Shelf action for shelf rows and shelf file rows.
+- Changed Apply Shelf/Unshelve so applying a shelf keeps the shelf entry until the user deletes it explicitly.
+- Applied shelves back to the working tree as unstaged changes, with a 3-way fallback that unstages touched paths.
+- Grouped the Stash view by repository before listing individual stashes.
+- Kept Stash refresh resilient when one repository cannot list stashes.
+
 ## 0.2.4
 
 - Prevented cross-repository multi-selection actions; batch actions now require selected files from one repository.

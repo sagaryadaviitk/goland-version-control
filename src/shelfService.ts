@@ -72,7 +72,7 @@ export class ShelfService {
   }
 
   async restoreShelf(shelf: ShelfEntry, removeAfterRestore: boolean): Promise<void> {
-    await this.git.applyPatch(shelf.repoRoot, shelf.patchPath);
+    await this.git.applyPatch(shelf.repoRoot, shelf.patchPath, shelfPaths(shelf));
     if (removeAfterRestore) {
       await this.deleteShelf(shelf);
     }
@@ -166,4 +166,12 @@ function groupByRepo(changes: GitChange[]): Map<string, GitChange[]> {
     byRepo.set(change.repoRoot, existing);
   }
   return byRepo;
+}
+
+function shelfPaths(shelf: ShelfEntry): string[] {
+  return [...new Set(shelf.files.flatMap((file) => [file.path, file.originalPath].filter(isDefined)))];
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
 }
