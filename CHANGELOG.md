@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+
+- Stopped running Go diff syntax diagnostics on every file save; saved files now only refresh open diff virtual documents and schedule Git status refresh.
+- Made Local Changes inline actions use a stable button set and order so actions do not shift during refreshes.
+
 ## 0.2.2
 
 - Fixed Shelf file rows so Unshelve, Restore Shelf, and Open Shelf Diff are available directly from selected files.

@@ -2,7 +2,7 @@
   "name": "goland-version-control",
   "displayName": "GoLand Version Control",
   "description": "A GoLand-inspired local changes, shelf, and stash workflow for Git changes in VS Code.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "sagaryadaviitk",
   "license": "MIT",
   "repository": {
@@ -286,28 +286,28 @@
       "view/item/context": [
         {
           "command": "golandVersionControl.stage",
-          "when": "view == golandVersionControl.localChanges && viewItem =~ /stageable/",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
           "group": "inline@1"
         },
         {
           "command": "golandVersionControl.unstage",
-          "when": "view == golandVersionControl.localChanges && viewItem =~ /unstageable/",
-          "group": "inline@1"
-        },
-        {
-          "command": "golandVersionControl.shelve",
-          "when": "view == golandVersionControl.localChanges && viewItem =~ /shelvable/",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
           "group": "inline@2"
         },
         {
-          "command": "golandVersionControl.stashSelected",
-          "when": "view == golandVersionControl.localChanges && viewItem =~ /stashable/",
+          "command": "golandVersionControl.shelve",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
           "group": "inline@3"
         },
         {
-          "command": "golandVersionControl.revert",
-          "when": "view == golandVersionControl.localChanges && viewItem =~ /discardable/",
+          "command": "golandVersionControl.stashSelected",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
           "group": "inline@4"
+        },
+        {
+          "command": "golandVersionControl.revert",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
+          "group": "inline@5"
         },
         {
           "command": "golandVersionControl.openFile",

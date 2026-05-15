@@ -55,7 +55,6 @@ export class DiffController implements vscode.Disposable {
 
   refreshForFile(fsPath: string): void {
     this.contentProvider.refreshForFile(fsPath);
-    void this.updateGoSyntaxDiagnostics(vscode.Uri.file(fsPath));
   }
 
   private trackVirtualUri(uri: vscode.Uri): vscode.Uri {
