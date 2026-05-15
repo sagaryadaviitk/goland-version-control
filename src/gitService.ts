@@ -2,6 +2,7 @@ import * as cp from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { buildDiscardPlan } from './gitDiscard';
 import { buildChangeRecords, parsePorcelainStatus } from './gitStatus';
 import { GitChange, RepositoryRef, WorkspaceState } from './model';
 import { GitWatchRoot } from './refreshCoordinator';
@@ -50,23 +51,18 @@ export class GitService {
     const byRepo = groupPathsByRepo(changes);
 
     for (const [repoRoot, repoChanges] of byRepo) {
-      const resetPaths = uniquePaths(repoChanges
-        .filter((change) => change.area !== 'untracked')
-        .flatMap((change) => [change.path, change.originalPath])
-        .filter(isDefined));
-      const checkoutPaths = uniquePaths(repoChanges.flatMap((change) => pathsToCheckout(change)));
-      const cleanPaths = uniquePaths(repoChanges.flatMap((change) => pathsToClean(change)));
+      const plan = buildDiscardPlan(repoChanges);
 
-      if (resetPaths.length > 0) {
-        await runGit(repoRoot, ['reset', '-q', 'HEAD', '--', ...resetPaths]);
+      if (plan.stagedAndWorktreePaths.length > 0) {
+        await runGit(repoRoot, ['restore', '--staged', '--worktree', '--', ...plan.stagedAndWorktreePaths]);
       }
 
-      if (checkoutPaths.length > 0) {
-        await runGit(repoRoot, ['checkout', '--', ...checkoutPaths]);
+      if (plan.worktreePaths.length > 0) {
+        await runGit(repoRoot, ['restore', '--worktree', '--', ...plan.worktreePaths]);
       }
 
-      if (cleanPaths.length > 0) {
-        await runGit(repoRoot, ['clean', '-f', '--', ...cleanPaths]);
+      if (plan.cleanPaths.length > 0) {
+        await runGit(repoRoot, ['clean', '-fd', '--', ...plan.cleanPaths]);
       }
     }
   }
@@ -190,38 +186,6 @@ function groupPathsByRepo(changes: GitChange[]): Map<string, GitChange[]> {
     byRepo.set(change.repoRoot, existing);
   }
   return byRepo;
-}
-
-function pathsToCheckout(change: GitChange): string[] {
-  if (change.area === 'untracked') {
-    return [];
-  }
-
-  if (change.kind === 'added' || change.kind === 'copied') {
-    return [];
-  }
-
-  if (change.kind === 'renamed') {
-    return change.originalPath ? [change.originalPath] : [];
-  }
-
-  return [change.path];
-}
-
-function pathsToClean(change: GitChange): string[] {
-  if (change.area === 'untracked') {
-    return [change.path];
-  }
-
-  if (change.kind === 'added' || change.kind === 'copied' || change.kind === 'renamed') {
-    return [change.path];
-  }
-
-  return [];
-}
-
-function uniquePaths(paths: string[]): string[] {
-  return [...new Set(paths)];
 }
 
 function isDefined<T>(value: T | undefined): value is T {

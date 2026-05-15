@@ -2,7 +2,7 @@
   "name": "goland-version-control",
   "displayName": "GoLand Version Control",
   "description": "A GoLand-inspired local changes view for reviewing, grouping, staging, and discarding Git changes in VS Code.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "sagaryadaviitk",
   "license": "MIT",
   "repository": {

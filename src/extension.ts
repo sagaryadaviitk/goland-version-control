@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import { ChangelistStore } from './changelists';
+import { resolveChanges, resolveSingleChange } from './commandSelection';
 import { GitService } from './gitService';
 import { openDiff, openWorkingFile, registerDiffProvider } from './diffProvider';
 import { ReviewSession } from './reviewSession';
 import { DisposableLike, RefreshCoordinator } from './refreshCoordinator';
-import { ChangeDecorationProvider, LocalChangesTreeProvider, isFileNode } from './treeView';
+import { ChangeDecorationProvider, LocalChangesTreeProvider } from './treeView';
 import { ExtensionSettings, GitChange, WorkspaceState } from './model';
 
 let workspaceState: WorkspaceState = { repositories: [], changes: [] };
@@ -59,7 +60,11 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   const refreshNow = () => refreshCoordinator.refreshNow();
   const revertChanges = async (input?: unknown, selected?: unknown[]) => {
     const changes = resolveChanges(input, selected);
-    if (changes.length === 0 || !(await confirmDiscard(changes))) {
+    if (changes.length === 0) {
+      void vscode.window.showInformationMessage('No local change selected.');
+      return;
+    }
+    if (!(await confirmDiscard(changes))) {
       return;
     }
     await git.discard(changes);
@@ -211,30 +216,6 @@ function readSettings(): ExtensionSettings {
     confirmDiscard: config.get('confirmDiscard', true),
     compareBase: config.get('compareBase', 'HEAD')
   };
-}
-
-function resolveSingleChange(input?: unknown): GitChange | undefined {
-  if (isFileNode(input)) {
-    return input.change;
-  }
-
-  if (isGitChange(input)) {
-    return input;
-  }
-
-  return undefined;
-}
-
-function resolveChanges(input?: unknown, selected?: unknown[]): GitChange[] {
-  const candidates = selected && selected.length > 0 ? selected : [input];
-  return candidates.flatMap((candidate) => {
-    const change = resolveSingleChange(candidate);
-    return change ? [change] : [];
-  });
-}
-
-function isGitChange(value: unknown): value is GitChange {
-  return Boolean(value && typeof value === 'object' && typeof (value as { path?: unknown }).path === 'string');
 }
 
 async function confirmDiscard(changes: GitChange[]): Promise<boolean> {
