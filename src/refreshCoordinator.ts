@@ -45,6 +45,7 @@ export class RefreshCoordinator<TState> implements DisposableLike {
   private disposed = false;
   private watchSignature = '';
   private watchers: DisposableLike[] = [];
+  private suppressWatchEventsUntil = 0;
 
   constructor(private readonly options: RefreshCoordinatorOptions<TState>) {
     this.debounceMs = options.debounceMs ?? 350;
@@ -52,6 +53,9 @@ export class RefreshCoordinator<TState> implements DisposableLike {
 
   scheduleAutoRefresh(): void {
     if (this.disposed || !this.options.isAutoRefreshEnabled()) {
+      return;
+    }
+    if (Date.now() < this.suppressWatchEventsUntil) {
       return;
     }
 
@@ -94,7 +98,9 @@ export class RefreshCoordinator<TState> implements DisposableLike {
 
   async rebuildWatchersForState(state: TState): Promise<void> {
     if (!this.disposed) {
+      this.suppressWatchEventsUntil = Date.now() + 250;
       await this.rebuildWatchers(state);
+      this.suppressWatchEventsUntil = Date.now() + 250;
     }
   }
 
@@ -103,8 +109,10 @@ export class RefreshCoordinator<TState> implements DisposableLike {
       this.refreshAgain = false;
 
       try {
+        this.suppressWatchEventsUntil = Date.now() + this.debounceMs + 250;
         const state = await this.options.refresh();
         await this.rebuildWatchers(state);
+        this.suppressWatchEventsUntil = Date.now() + 250;
       } catch (error) {
         this.options.onError?.(error);
       }

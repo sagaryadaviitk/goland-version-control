@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.4
+
+- Prevented cross-repository multi-selection actions; batch actions now require selected files from one repository.
+- Hid Local Changes row action buttons while multiple files are selected so batch actions move to the Selected Changes panel.
+- Changed file-row status markers to appear only on selected files, with stable blank spacing on unselected rows.
+- Avoided repainting the Local Changes tree when refresh results are unchanged, keeping inline buttons stable while background refresh runs.
+- Moved local file status badges out of the right-side decoration lane so inline actions no longer push or hide the `M`/status marker.
+- Time-boxed built-in Git extension repository discovery during reload so workspace-folder changes can appear sooner.
+- Made Git status refresh more resilient and less noisy by skipping failed repos and running status with optional locks disabled.
+
 ## 0.2.3
 
 - Stopped running Go diff syntax diagnostics on every file save; saved files now only refresh open diff virtual documents and schedule Git status refresh.

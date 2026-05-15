@@ -2,17 +2,28 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { ChangeTreeNode, buildTree, collectChanges, FileNode, RepositoryNode } from './treeModel';
 import { ChangelistStore } from './changelists';
-import { ChangeArea, ChangeKind, ExtensionSettings, GitChange, WorkspaceState } from './model';
+import { ChangeArea, ChangeKind, ExtensionSettings, GitChange, WorkspaceState, changeKey } from './model';
 
 export class LocalChangesTreeProvider implements vscode.TreeDataProvider<ChangeTreeNode> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<ChangeTreeNode | undefined | null | void>();
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
   private roots: RepositoryNode[] = [];
+  private selectedKeys = new Set<string>();
 
   constructor(private readonly changelists: ChangelistStore) {}
 
   update(state: WorkspaceState, settings: ExtensionSettings): void {
     this.roots = buildTree(state, this.changelists, settings.groupBy);
+    this.onDidChangeTreeDataEmitter.fire();
+  }
+
+  updateSelection(changes: GitChange[]): void {
+    const nextKeys = new Set(changes.map(changeKey));
+    if (sameSet(this.selectedKeys, nextKeys)) {
+      return;
+    }
+
+    this.selectedKeys = nextKeys;
     this.onDidChangeTreeDataEmitter.fire();
   }
 
@@ -23,7 +34,7 @@ export class LocalChangesTreeProvider implements vscode.TreeDataProvider<ChangeT
       case 'group':
         return groupItem(node);
       case 'file':
-        return fileItem(node);
+        return fileItem(node, this.selectedKeys.has(changeKey(node.change)));
     }
   }
 
@@ -61,13 +72,14 @@ function groupItem(node: ChangeTreeNode & { type: 'group' }): vscode.TreeItem {
   return item;
 }
 
-function fileItem(node: FileNode): vscode.TreeItem {
+function fileItem(node: FileNode, isSelected: boolean): vscode.TreeItem {
   const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
-  item.description = node.description;
+  item.description = fileDescription(node.change, node.description);
   item.tooltip = tooltipFor(node);
-  item.resourceUri = decorationUri(node.change);
   item.contextValue = contextFor(node);
-  item.iconPath = fileIcon(node.change);
+  item.iconPath = isSelected
+    ? new vscode.ThemeIcon('circle-filled', statusColor(node.change))
+    : new vscode.ThemeIcon('blank');
   item.command = {
     command: 'golandVersionControl.openDiff',
     title: 'Open Diff',
@@ -173,21 +185,12 @@ function formatCount(count: number): string {
   return count === 1 ? '1 file' : `${count} files`;
 }
 
-function fileIcon(change: GitChange): vscode.ThemeIcon {
-  switch (change.kind) {
-    case 'added':
-    case 'untracked':
-      return new vscode.ThemeIcon('diff-added', statusColor(change));
-    case 'deleted':
-      return new vscode.ThemeIcon('diff-removed', statusColor(change));
-    case 'renamed':
-    case 'copied':
-      return new vscode.ThemeIcon('git-compare', statusColor(change));
-    case 'conflict':
-      return new vscode.ThemeIcon('warning', statusColor(change));
-    default:
-      return new vscode.ThemeIcon('diff-modified', statusColor(change));
+function fileDescription(change: GitChange, detail: string | undefined): string {
+  const parts = [statusBadge(change)];
+  if (detail) {
+    parts.push(detail);
   }
+  return parts.join('  ');
 }
 
 function parseDecorationStatus(uri: vscode.Uri): { area: ChangeArea; kind: ChangeKind; statusText: string } | undefined {
@@ -278,4 +281,17 @@ function statusColor(status: { area: ChangeArea; kind: ChangeKind }): vscode.The
     default:
       return new vscode.ThemeColor('charts.blue');
   }
+}
+
+function sameSet(left: Set<string>, right: Set<string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+  return true;
 }

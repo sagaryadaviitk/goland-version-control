@@ -92,6 +92,27 @@ test('queues one follow-up refresh instead of overlapping refreshes', async () =
   coordinator.dispose();
 });
 
+test('ignores watcher events caused by its own refresh pass', async () => {
+  let refreshCount = 0;
+  const coordinator = new RefreshCoordinator({
+    debounceMs: 5,
+    isAutoRefreshEnabled: () => true,
+    refresh: async () => {
+      refreshCount += 1;
+      return { value: refreshCount };
+    },
+    getWatchRoots: async () => [],
+    createWatcher: () => new MemoryDisposable()
+  });
+
+  await coordinator.refreshNow();
+  coordinator.scheduleAutoRefresh();
+  await delay(30);
+
+  assert.equal(refreshCount, 1);
+  coordinator.dispose();
+});
+
 test('rebuilds Git watchers when watch roots change', async () => {
   const watcherSets: MemoryDisposable[][] = [];
   const roots: GitWatchRoot[][] = [

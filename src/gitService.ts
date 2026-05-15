@@ -37,7 +37,14 @@ export class GitService {
     const changesByRepository = await mapLimit(
       targetRepositories,
       options.concurrency ?? 4,
-      async (repo) => this.getChanges(repo, showUntracked)
+      async (repo) => {
+        try {
+          return await this.getChanges(repo, showUntracked);
+        } catch (error) {
+          this.log?.(`git status failed for ${repo.root}: ${messageFrom(error)}`);
+          return [];
+        }
+      }
     );
 
     if (repoRootSet && options.previous) {
@@ -56,7 +63,7 @@ export class GitService {
 
   async getChanges(repo: RepositoryRef, showUntracked: boolean): Promise<GitChange[]> {
     const args = ['status', '--porcelain=v1', '-z', showUntracked ? '--untracked-files=all' : '--untracked-files=no'];
-    const output = await runGit(repo.root, args, this.log);
+    const output = await runGit(repo.root, args, this.log, { noOptionalLocks: true });
     return buildChangeRecords(repo, parsePorcelainStatus(repo.root, output));
   }
 
@@ -166,14 +173,19 @@ export class GitService {
       return this.repositoryCache;
     }
 
-    const [gitApiRepos, workspaceRepos] = await Promise.all([
-      this.discoverViaGitExtension(),
-      this.discoverViaWorkspaceFolders()
+    const [workspaceRepos, gitApiRepos] = await Promise.all([
+      this.discoverViaWorkspaceFolders(),
+      withTimeout(
+        this.discoverViaGitExtension(),
+        300,
+        [],
+        () => this.log?.('Git extension repository discovery timed out; using workspace folder discovery for this refresh')
+      )
     ]);
 
     this.repositoryCache = uniqueRepositories([
-      ...gitApiRepos.map((repo) => repo.root),
-      ...workspaceRepos.map((repo) => repo.root)
+      ...workspaceRepos.map((repo) => repo.root),
+      ...gitApiRepos.map((repo) => repo.root)
     ]);
     return this.repositoryCache;
   }
@@ -266,10 +278,25 @@ export class GitService {
   }
 }
 
-export function runGit(repoRoot: string, args: string[], log?: (message: string) => void): Promise<string> {
+interface RunGitOptions {
+  noOptionalLocks?: boolean;
+}
+
+export function runGit(
+  repoRoot: string,
+  args: string[],
+  log?: (message: string) => void,
+  options: RunGitOptions = {}
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
-    cp.execFile('git', ['-C', repoRoot, ...args], { encoding: 'utf8', maxBuffer: 25 * 1024 * 1024 }, (error, stdout, stderr) => {
+    cp.execFile('git', ['-C', repoRoot, ...args], {
+      encoding: 'utf8',
+      maxBuffer: 25 * 1024 * 1024,
+      env: options.noOptionalLocks
+        ? { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+        : process.env
+    }, (error, stdout, stderr) => {
       log?.(`git -C ${repoRoot} ${args.join(' ')} (${Date.now() - start}ms)`);
       if (error) {
         reject(new Error((stderr || error.message).trim()));
@@ -323,6 +350,33 @@ function uniquePaths(paths: string[]): string[] {
 
 function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+  onTimeout: () => void
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timeout = setTimeout(() => {
+      onTimeout();
+      resolve(fallback);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function messageFrom(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function resolveGitPath(repoRoot: string, value: string): string {

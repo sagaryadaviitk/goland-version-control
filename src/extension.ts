@@ -40,6 +40,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   const shelfService = new ShelfService(context, git, readSettings);
   let refreshVersion = 0;
   let selectedChanges: GitChange[] = [];
+  let lastCrossRepoSelectionWarningAt = 0;
 
   const tree = vscode.window.createTreeView('golandVersionControl.localChanges', {
     treeDataProvider: treeProvider,
@@ -60,25 +61,35 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   });
 
   const updateSelectedChanges = (changes: GitChange[]): void => {
-    selectedChanges = changes;
-    selectedProvider.update(changes);
+    treeProvider.updateSelection(changes);
     const hasMultiSelection = changes.length > 1;
+    const hasCrossRepoSelection = isCrossRepoSelection(changes);
+    const hasValidMultiSelection = hasMultiSelection && !hasCrossRepoSelection;
+    const actionableChanges = hasCrossRepoSelection ? [] : changes;
+
+    selectedChanges = actionableChanges;
+    selectedProvider.update(hasValidMultiSelection ? actionableChanges : []);
     void vscode.commands.executeCommand('setContext', 'golandVersionControl.hasMultiSelection', hasMultiSelection);
+    void vscode.commands.executeCommand('setContext', 'golandVersionControl.hasValidMultiSelection', hasValidMultiSelection);
     void vscode.commands.executeCommand(
       'setContext',
       'golandVersionControl.selectedStageable',
-      hasMultiSelection && changes.some((change) => change.area === 'workingTree' || change.area === 'untracked')
+      hasValidMultiSelection && actionableChanges.some((change) => change.area === 'workingTree' || change.area === 'untracked')
     );
     void vscode.commands.executeCommand(
       'setContext',
       'golandVersionControl.selectedUnstageable',
-      hasMultiSelection && changes.some((change) => change.area === 'index')
+      hasValidMultiSelection && actionableChanges.some((change) => change.area === 'index')
     );
     void vscode.commands.executeCommand(
       'setContext',
       'golandVersionControl.selectedShelvable',
-      hasMultiSelection && changes.some((change) => change.area !== 'untracked')
+      hasValidMultiSelection && actionableChanges.some((change) => change.area !== 'untracked')
     );
+
+    if (hasCrossRepoSelection) {
+      warnCrossRepoSelection();
+    }
   };
 
   const syncSelectedChangesWithState = (): void => {
@@ -95,7 +106,20 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
 
   const commandChanges = (input?: unknown, selected?: unknown[]): GitChange[] => {
     const changes = resolveChanges(input, selected);
-    return changes.length > 0 ? changes : selectedChanges;
+    const resolved = changes.length > 0 ? changes : selectedChanges;
+    if (isCrossRepoSelection(resolved)) {
+      warnCrossRepoSelection();
+      return [];
+    }
+    return resolved;
+  };
+
+  const warnCrossRepoSelection = (): void => {
+    const now = Date.now();
+    if (now - lastCrossRepoSelectionWarningAt > 3000) {
+      lastCrossRepoSelectionWarningAt = now;
+      void vscode.window.showWarningMessage('Select files from one repository at a time.');
+    }
   };
 
   const applyWorkspaceState = (): void => {
@@ -122,9 +146,12 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
     if (version !== refreshVersion) {
       return workspaceState;
     }
+    const hasStateChanged = !sameWorkspaceState(workspaceState, nextState);
     workspaceState = nextState;
-    applyWorkspaceState();
-    log(`refresh ${options.repoRoots?.join(',') ?? 'all'} (${Date.now() - start}ms, ${workspaceState.changes.length} changes)`);
+    if (hasStateChanged) {
+      applyWorkspaceState();
+    }
+    log(`refresh ${options.repoRoots?.join(',') ?? 'all'} (${Date.now() - start}ms, ${workspaceState.changes.length} changes, ${hasStateChanged ? 'updated' : 'unchanged'})`);
     return workspaceState;
   };
 
@@ -662,6 +689,41 @@ function messageFrom(error: unknown): string {
 
 function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
+}
+
+function sameWorkspaceState(left: WorkspaceState, right: WorkspaceState): boolean {
+  if (left.repositories.length !== right.repositories.length || left.changes.length !== right.changes.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.repositories.length; index += 1) {
+    if (left.repositories[index].root !== right.repositories[index].root || left.repositories[index].name !== right.repositories[index].name) {
+      return false;
+    }
+  }
+
+  for (let index = 0; index < left.changes.length; index += 1) {
+    if (!sameChange(left.changes[index], right.changes[index])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sameChange(left: GitChange, right: GitChange): boolean {
+  return left.repoRoot === right.repoRoot
+    && left.repoName === right.repoName
+    && left.path === right.path
+    && left.originalPath === right.originalPath
+    && left.area === right.area
+    && left.category === right.category
+    && left.kind === right.kind
+    && left.statusText === right.statusText;
+}
+
+function isCrossRepoSelection(changes: GitChange[]): boolean {
+  return new Set(changes.map((change) => change.repoRoot)).size > 1;
 }
 
 function createGitWatcher(basePath: string, pattern: string, onEvent: () => void): DisposableLike {
