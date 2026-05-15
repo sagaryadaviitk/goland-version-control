@@ -1,0 +1,291 @@
+{
+  "name": "goland-version-control",
+  "displayName": "GoLand Version Control",
+  "description": "A GoLand-inspired local changes view for reviewing, grouping, staging, and discarding Git changes in VS Code.",
+  "version": "0.1.0",
+  "publisher": "sagaryadaviitk",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sagaryadaviitk/goland-version-control.git"
+  },
+  "homepage": "https://github.com/sagaryadaviitk/goland-version-control",
+  "bugs": {
+    "url": "https://github.com/sagaryadaviitk/goland-version-control/issues"
+  },
+  "main": "./dist/extension.js",
+  "type": "commonjs",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "version-control",
+    "goland",
+    "jetbrains",
+    "changes",
+    "changelist",
+    "diff"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:golandVersionControl.localChanges",
+    "onCommand:golandVersionControl.refresh",
+    "onCommand:golandVersionControl.openDiff",
+    "onCommand:golandVersionControl.nextChange",
+    "onCommand:golandVersionControl.previousChange"
+  ],
+  "files": [
+    "dist/**",
+    "resources/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "golandVersionControl",
+          "title": "Version Control",
+          "icon": "resources/version-control.svg"
+        }
+      ]
+    },
+    "views": {
+      "golandVersionControl": [
+        {
+          "id": "golandVersionControl.localChanges",
+          "name": "Local Changes",
+          "when": "workspaceFolderCount > 0"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "golandVersionControl.refresh",
+        "title": "GoLand Version Control: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "golandVersionControl.openDiff",
+        "title": "GoLand Version Control: Open Diff",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "golandVersionControl.openFile",
+        "title": "GoLand Version Control: Open File",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "golandVersionControl.nextChange",
+        "title": "GoLand Version Control: Next Change",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "golandVersionControl.previousChange",
+        "title": "GoLand Version Control: Previous Change",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "golandVersionControl.nextFile",
+        "title": "GoLand Version Control: Next Changed File",
+        "icon": "$(chevron-down)"
+      },
+      {
+        "command": "golandVersionControl.previousFile",
+        "title": "GoLand Version Control: Previous Changed File",
+        "icon": "$(chevron-up)"
+      },
+      {
+        "command": "golandVersionControl.stage",
+        "title": "GoLand Version Control: Stage",
+        "icon": "$(add)"
+      },
+      {
+        "command": "golandVersionControl.unstage",
+        "title": "GoLand Version Control: Unstage",
+        "icon": "$(remove)"
+      },
+      {
+        "command": "golandVersionControl.discard",
+        "title": "GoLand Version Control: Discard",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "golandVersionControl.revert",
+        "title": "GoLand Version Control: Revert Changes",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "golandVersionControl.createChangelist",
+        "title": "GoLand Version Control: Create Changelist",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "golandVersionControl.moveToChangelist",
+        "title": "GoLand Version Control: Move to Changelist",
+        "icon": "$(folder-active)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "golandVersionControl.refresh",
+          "when": "view == golandVersionControl.localChanges",
+          "group": "navigation@1"
+        },
+        {
+          "command": "golandVersionControl.previousFile",
+          "when": "view == golandVersionControl.localChanges",
+          "group": "navigation@2"
+        },
+        {
+          "command": "golandVersionControl.nextFile",
+          "when": "view == golandVersionControl.localChanges",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "golandVersionControl.openDiff",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
+          "group": "inline@1"
+        },
+        {
+          "command": "golandVersionControl.stage",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /stageable/",
+          "group": "inline@2"
+        },
+        {
+          "command": "golandVersionControl.unstage",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /unstageable/",
+          "group": "inline@2"
+        },
+        {
+          "command": "golandVersionControl.revert",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /discardable/",
+          "group": "inline@3"
+        },
+        {
+          "command": "golandVersionControl.openFile",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "golandVersionControl.moveToChangelist",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /change/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "golandVersionControl.discard",
+          "when": "view == golandVersionControl.localChanges && viewItem =~ /discardable/",
+          "group": "navigation@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "golandVersionControl.openDiff"
+        },
+        {
+          "command": "golandVersionControl.openFile"
+        },
+        {
+          "command": "golandVersionControl.stage"
+        },
+        {
+          "command": "golandVersionControl.unstage"
+        },
+        {
+          "command": "golandVersionControl.discard"
+        },
+        {
+          "command": "golandVersionControl.revert"
+        },
+        {
+          "command": "golandVersionControl.createChangelist"
+        },
+        {
+          "command": "golandVersionControl.moveToChangelist"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "golandVersionControl.nextFile",
+        "key": "alt+down",
+        "mac": "alt+down",
+        "when": "focusedView == golandVersionControl.localChanges"
+      },
+      {
+        "command": "golandVersionControl.previousFile",
+        "key": "alt+up",
+        "mac": "alt+up",
+        "when": "focusedView == golandVersionControl.localChanges"
+      }
+    ],
+    "configuration": {
+      "title": "GoLand Version Control",
+      "properties": {
+        "golandVersionControl.showUntracked": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show untracked files in the GoLand Version Control local changes view."
+        },
+        "golandVersionControl.groupBy": {
+          "type": "string",
+          "default": "changelist",
+          "enum": [
+            "changelist",
+            "status",
+            "folder"
+          ],
+          "description": "Primary grouping mode for local changes."
+        },
+        "golandVersionControl.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh the local changes view when files or Git state change."
+        },
+        "golandVersionControl.confirmDiscard": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask for confirmation before discarding local changes."
+        },
+        "golandVersionControl.compareBase": {
+          "type": "string",
+          "default": "HEAD",
+          "enum": [
+            "HEAD"
+          ],
+          "description": "Git revision used as the left side of local working-tree diffs."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "compile": "npm run check-types && node esbuild.js",
+    "compile:test": "tsc -p tsconfig.test.json",
+    "package": "npm run compile",
+    "test": "npm run test:unit",
+    "test:unit": "npm run compile:test && node --test out/test/unit/*.test.js",
+    "test:integration": "npm run compile:test && vscode-test",
+    "vscode:prepublish": "npm run package"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.17.10",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.2"
+  }
+}
