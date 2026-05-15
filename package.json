@@ -2,7 +2,7 @@
   "name": "goland-version-control",
   "displayName": "GoLand Version Control",
   "description": "A GoLand-inspired local changes, shelf, and stash workflow for Git changes in VS Code.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "sagaryadaviitk",
   "license": "MIT",
   "repository": {
@@ -336,17 +336,17 @@
         },
         {
           "command": "golandVersionControl.openShelfDiff",
-          "when": "view == golandVersionControl.shelf && viewItem == shelf",
+          "when": "view == golandVersionControl.shelf && viewItem =~ /shelf/",
           "group": "inline@1"
         },
         {
           "command": "golandVersionControl.unshelve",
-          "when": "view == golandVersionControl.shelf && viewItem == shelf",
+          "when": "view == golandVersionControl.shelf && viewItem =~ /shelf/",
           "group": "inline@2"
         },
         {
           "command": "golandVersionControl.restoreShelf",
-          "when": "view == golandVersionControl.shelf && viewItem == shelf",
+          "when": "view == golandVersionControl.shelf && viewItem =~ /shelf/",
           "group": "navigation@1"
         },
         {
@@ -356,17 +356,17 @@
         },
         {
           "command": "golandVersionControl.openStashDiff",
-          "when": "view == golandVersionControl.stash && viewItem == stash",
+          "when": "view == golandVersionControl.stash && viewItem =~ /stash/",
           "group": "inline@1"
         },
         {
           "command": "golandVersionControl.applyStash",
-          "when": "view == golandVersionControl.stash && viewItem == stash",
+          "when": "view == golandVersionControl.stash && viewItem =~ /stash/",
           "group": "inline@2"
         },
         {
           "command": "golandVersionControl.popStash",
-          "when": "view == golandVersionControl.stash && viewItem == stash",
+          "when": "view == golandVersionControl.stash && viewItem =~ /stash/",
           "group": "navigation@1"
         },
         {

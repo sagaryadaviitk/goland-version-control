@@ -72,6 +72,11 @@ function shelfFileItem(node: ShelfFileNode): vscode.TreeItem {
   item.tooltip = path.join(node.shelf.repoRoot, node.file.path);
   item.contextValue = 'shelfFile';
   item.iconPath = new vscode.ThemeIcon('file');
+  item.command = {
+    command: 'golandVersionControl.openShelfDiff',
+    title: 'Open Shelf Diff',
+    arguments: [node]
+  };
   return item;
 }
 

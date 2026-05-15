@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Fixed Shelf file rows so Unshelve, Restore Shelf, and Open Shelf Diff are available directly from selected files.
+- Fixed Stash file rows so Apply Stash, Pop Stash, and Open Stash Diff are available directly from selected files.
+
 ## 0.2.1
 
 - Removed the redundant inline Open Diff button from local change rows.

@@ -71,5 +71,10 @@ function stashFileItem(node: StashFileNode): vscode.TreeItem {
   item.tooltip = path.join(node.stash.repoRoot, node.file.path);
   item.contextValue = 'stashFile';
   item.iconPath = new vscode.ThemeIcon('file');
+  item.command = {
+    command: 'golandVersionControl.openStashDiff',
+    title: 'Open Stash Diff',
+    arguments: [node]
+  };
   return item;
 }
