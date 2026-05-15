@@ -29,9 +29,13 @@ export class StashTreeProvider implements vscode.TreeDataProvider<StashTreeNode>
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<StashTreeNode | undefined | null | void>();
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
   private repositories: StashRepositoryNode[] = [];
+  private loadedFileKeys = new Set<string>();
+
+  constructor(private readonly loadFiles: (stash: StashEntry) => Promise<StashFile[]>) {}
 
   update(stashes: StashEntry[]): void {
     this.repositories = groupStashesByRepository(stashes);
+    this.loadedFileKeys.clear();
     this.onDidChangeTreeDataEmitter.fire();
   }
 
@@ -45,7 +49,7 @@ export class StashTreeProvider implements vscode.TreeDataProvider<StashTreeNode>
     return stashFileItem(node);
   }
 
-  getChildren(node?: StashTreeNode): StashTreeNode[] {
+  getChildren(node?: StashTreeNode): vscode.ProviderResult<StashTreeNode[]> {
     if (!node) {
       return this.repositories;
     }
@@ -55,15 +59,25 @@ export class StashTreeProvider implements vscode.TreeDataProvider<StashTreeNode>
     }
 
     if (node.type === 'stash') {
-      return node.stash.files.map((file) => ({
-        type: 'stashFile',
-        id: `stash:${node.stash.repoRoot}:${node.stash.ref}/file:${file.path}`,
-        stash: node.stash,
-        file
-      }));
+      return this.getStashFileNodes(node);
     }
 
     return [];
+  }
+
+  private async getStashFileNodes(node: StashNode): Promise<StashFileNode[]> {
+    const key = stashKey(node.stash);
+    if (!this.loadedFileKeys.has(key)) {
+      node.stash.files = await this.loadFiles(node.stash);
+      this.loadedFileKeys.add(key);
+    }
+
+    return node.stash.files.map((file) => ({
+      type: 'stashFile',
+      id: `stash:${node.stash.repoRoot}:${node.stash.ref}/file:${file.path}`,
+      stash: node.stash,
+      file
+    }));
   }
 }
 
@@ -126,4 +140,8 @@ function groupStashesByRepository(stashes: StashEntry[]): StashRepositoryNode[] 
 
 function formatCount(count: number): string {
   return count === 1 ? '1 stash' : `${count} stashes`;
+}
+
+function stashKey(stash: StashEntry): string {
+  return `${stash.repoRoot}\0${stash.ref}`;
 }

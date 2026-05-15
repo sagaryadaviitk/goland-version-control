@@ -98,9 +98,7 @@ export class RefreshCoordinator<TState> implements DisposableLike {
 
   async rebuildWatchersForState(state: TState): Promise<void> {
     if (!this.disposed) {
-      this.suppressWatchEventsUntil = Date.now() + 250;
       await this.rebuildWatchers(state);
-      this.suppressWatchEventsUntil = Date.now() + 250;
     }
   }
 

@@ -33,7 +33,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   const treeProvider = new LocalChangesTreeProvider(changelists);
   const selectedProvider = new SelectedChangesTreeProvider();
   const shelfProvider = new ShelfTreeProvider();
-  const stashProvider = new StashTreeProvider();
+  const stashProvider = new StashTreeProvider((stash) => git.listStashFiles(stash));
   const decorationProvider = new ChangeDecorationProvider();
   const reviewSession = new ReviewSession();
   const diffController = registerDiffProvider(context, git);
@@ -161,6 +161,22 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
 
   const refreshStash = async (): Promise<void> => {
     stashProvider.update(await git.listStashes(workspaceState.repositories));
+  };
+
+  const rebuildWatchersInBackground = (state: WorkspaceState): void => {
+    void refreshCoordinator.rebuildWatchersForState(state).catch((error) => {
+      log(`watcher rebuild failed: ${messageFrom(error)}`);
+    });
+  };
+
+  const refreshShelfAndStashInBackground = (): void => {
+    void Promise.allSettled([refreshShelf(), refreshStash()]).then((results) => {
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          log(`secondary view refresh failed: ${messageFrom(result.reason)}`);
+        }
+      }
+    });
   };
 
   const refreshCoordinator = new RefreshCoordinator<WorkspaceState>({
@@ -296,9 +312,17 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
 
   const manualRefresh = async (): Promise<void> => {
     git.clearRepositoryCache();
-    const state = await refresh({ forceDiscover: true });
+    const state = await refresh({ forceDiscover: true, concurrency: 8 });
     await refreshCoordinator.rebuildWatchersForState(state);
-    await Promise.all([refreshShelf(), refreshStash()]);
+    await delay(100);
+    refreshShelfAndStashInBackground();
+  };
+
+  const startupRefresh = async (): Promise<void> => {
+    git.clearRepositoryCache();
+    const state = await refresh({ forceDiscover: true, concurrency: 8 });
+    rebuildWatchersInBackground(state);
+    refreshShelfAndStashInBackground();
   };
 
   const refreshFromUris = (uris: readonly vscode.Uri[]): void => {
@@ -539,7 +563,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
     })
   );
 
-  void manualRefresh();
+  void startupRefresh();
 
   return {
     getWorkspaceState: () => workspaceState
@@ -676,6 +700,10 @@ async function openPatchDocument(title: string, content: string): Promise<void> 
   void title;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function disposeRepoTimers(timers: Map<string, ReturnType<typeof setTimeout>>): void {
   for (const timer of timers.values()) {
     clearTimeout(timer);
@@ -755,6 +783,17 @@ function createNodeWatcher(basePath: string, pattern: string, onEvent: () => voi
     : path.join(basePath, pattern);
 
   try {
+    if (!recursive) {
+      const parent = path.dirname(target);
+      const name = path.basename(target);
+      const watcher = fs.watch(parent, { persistent: false }, (_eventType, filename) => {
+        if (!filename || filename.toString() === name) {
+          onEvent();
+        }
+      });
+      return { dispose: () => watcher.close() };
+    }
+
     const watcher = fs.watch(target, { persistent: false, recursive }, onEvent);
     return { dispose: () => watcher.close() };
   } catch {

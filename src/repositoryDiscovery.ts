@@ -12,18 +12,23 @@ export async function discoverWorkspaceRepositoryRoots(
 ): Promise<string[]> {
   const roots = new Set<string>();
 
-  for (const folder of workspaceFolders) {
+  const discovered = await mapLimit(workspaceFolders, 4, async (folder) => {
+    const folderRoots: string[] = [];
     const root = await resolveGitRoot(folder);
     if (root) {
-      roots.add(root);
+      folderRoots.push(root);
     }
 
-    for (const child of await listChildren(folder)) {
+    const childRoots = await mapLimit(await listChildren(folder), 8, async (child) => {
       const childRoot = await resolveGitRoot(child);
-      if (childRoot) {
-        roots.add(childRoot);
-      }
-    }
+      return childRoot ? [childRoot] : [];
+    });
+
+    return [...folderRoots, ...childRoots.flat()];
+  });
+
+  for (const root of discovered.flat()) {
+    roots.add(root);
   }
 
   return [...roots];
@@ -43,4 +48,18 @@ function canonicalRoot(root: string): string {
   } catch {
     return resolved;
   }
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }

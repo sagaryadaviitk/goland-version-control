@@ -18,11 +18,13 @@ interface GitApi {
 
 export class GitService {
   private repositoryCache: RepositoryRef[] | undefined;
+  private readonly gitWatchRootCache = new Map<string, GitWatchRoot>();
 
   constructor(private readonly log?: (message: string) => void) {}
 
   clearRepositoryCache(): void {
     this.repositoryCache = undefined;
+    this.gitWatchRootCache.clear();
   }
 
   async loadWorkspaceState(
@@ -183,6 +185,10 @@ export class GitService {
     return runGit(stash.repoRoot, ['stash', 'show', '-p', '--binary', stash.ref], this.log);
   }
 
+  async listStashFiles(stash: Pick<StashEntry, 'repoRoot' | 'ref'>): Promise<StashFile[]> {
+    return this.readStashFiles(stash.repoRoot, stash.ref);
+  }
+
   async discoverRepositories(force = false): Promise<RepositoryRef[]> {
     if (!force && this.repositoryCache) {
       return this.repositoryCache;
@@ -206,23 +212,28 @@ export class GitService {
   }
 
   async getGitWatchRoots(repositories: RepositoryRef[]): Promise<GitWatchRoot[]> {
-    const roots = await Promise.all(
-      repositories.map(async (repo) => this.getGitWatchRoot(repo))
-    );
+    const roots = await mapLimit(repositories, 8, async (repo) => this.getGitWatchRoot(repo));
     return roots.filter(isDefined);
   }
 
   private async getGitWatchRoot(repo: RepositoryRef): Promise<GitWatchRoot | undefined> {
+    const cached = this.gitWatchRootCache.get(repo.root);
+    if (cached) {
+      return cached;
+    }
+
     try {
       const [gitDir, commonDir] = await Promise.all([
         runGit(repo.root, ['rev-parse', '--git-dir'], this.log),
         runGit(repo.root, ['rev-parse', '--git-common-dir'], this.log)
       ]);
 
-      return {
+      const watchRoot = {
         gitDir: resolveGitPath(repo.root, gitDir),
         commonDir: resolveGitPath(repo.root, commonDir)
       };
+      this.gitWatchRootCache.set(repo.root, watchRoot);
+      return watchRoot;
     } catch {
       return undefined;
     }
@@ -267,7 +278,7 @@ export class GitService {
   private async listRepoStashes(repo: RepositoryRef): Promise<StashEntry[]> {
     const output = await runGit(repo.root, ['stash', 'list', '--format=%gd%x1f%H%x1f%ct%x1f%s'], this.log);
     const lines = output.split(/\r?\n/).filter(Boolean);
-    return Promise.all(lines.map(async (line) => {
+    return lines.map((line) => {
       const [ref, hash, createdAtSeconds, ...messageParts] = line.split('\x1f');
       const message = messageParts.join('\x1f');
       return {
@@ -277,12 +288,12 @@ export class GitService {
         hash,
         createdAt: new Date(Number(createdAtSeconds) * 1000).toISOString(),
         message,
-        files: await this.listStashFiles(repo.root, ref)
+        files: []
       };
-    }));
+    });
   }
 
-  private async listStashFiles(repoRoot: string, ref: string): Promise<StashFile[]> {
+  private async readStashFiles(repoRoot: string, ref: string): Promise<StashFile[]> {
     const output = await runGit(repoRoot, ['stash', 'show', '--name-status', ref], this.log);
     return output.split(/\r?\n/)
       .filter(Boolean)

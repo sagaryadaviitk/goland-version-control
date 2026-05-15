@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.6
+
+- Made Local Changes refresh return as soon as repository status is loaded; Shelf, Stash, and Git watcher rebuilds now refresh in the background.
+- Stopped expanding every stash into file lists during refresh; stash files are loaded lazily only when a stash is expanded.
+- Cached Git metadata watcher roots and parallelized workspace repository discovery to reduce reload latency in large workspaces.
+- Made Git metadata watching more reliable by watching `.git` parent folders for atomic index replacements.
+
 ## 0.2.5
 
 - Added a visible inline Delete Shelf action for shelf rows and shelf file rows.
