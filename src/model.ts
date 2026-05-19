@@ -48,6 +48,7 @@ export interface ExtensionSettings {
   confirmDiscard: boolean;
   debug: boolean;
   openDiffAtFirstChange: boolean;
+  enableGoDiffDiagnostics: boolean;
   shelfLocation: string;
   stashIncludeUntracked: boolean;
   compareBase: 'HEAD';

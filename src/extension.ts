@@ -6,7 +6,7 @@ import { resolveChanges, resolveSingleChange } from './commandSelection';
 import { registerDiffProvider, openWorkingFile } from './diffProvider';
 import { GitService } from './gitService';
 import { ExtensionSettings, GitChange, ShelfEntry, StashEntry, WorkspaceState, changeKey } from './model';
-import { DisposableLike, RefreshCoordinator } from './refreshCoordinator';
+import { DisposableLike, GIT_WATCH_PATTERNS, RefreshCoordinator } from './refreshCoordinator';
 import { ReviewSession } from './reviewSession';
 import { SelectedChangesTreeProvider } from './selectedChangesView';
 import { ShelfService } from './shelfService';
@@ -138,17 +138,18 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
     repoRoots?: string[];
     previous?: WorkspaceState;
     concurrency?: number;
+    forceApply?: boolean;
   } = {}): Promise<WorkspaceState> => {
     const version = ++refreshVersion;
     const settings = readSettings();
     const start = Date.now();
-    const nextState = await git.loadWorkspaceState(settings.showUntracked, options);
+    const nextState = await git.loadWorkspaceState(settings.showUntracked, { previous: workspaceState, ...options });
     if (version !== refreshVersion) {
       return workspaceState;
     }
     const hasStateChanged = !sameWorkspaceState(workspaceState, nextState);
     workspaceState = nextState;
-    if (hasStateChanged) {
+    if (hasStateChanged || options.forceApply) {
       applyWorkspaceState();
     }
     log(`refresh ${options.repoRoots?.join(',') ?? 'all'} (${Date.now() - start}ms, ${workspaceState.changes.length} changes, ${hasStateChanged ? 'updated' : 'unchanged'})`);
@@ -235,8 +236,12 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
   };
 
   const openChangeDiff = async (change: GitChange): Promise<void> => {
+    const settings = readSettings();
     reviewSession.setCurrent(change);
-    await diffController.openDiff(change, { openAtFirstChange: readSettings().openDiffAtFirstChange });
+    await diffController.openDiff(change, {
+      openAtFirstChange: settings.openDiffAtFirstChange,
+      enableGoDiagnostics: settings.enableGoDiffDiagnostics
+    });
   };
 
   const revertChanges = async (input?: unknown, selected?: unknown[]) => {
@@ -312,7 +317,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
 
   const manualRefresh = async (): Promise<void> => {
     git.clearRepositoryCache();
-    const state = await refresh({ forceDiscover: true, concurrency: 8 });
+    const state = await refresh({ forceDiscover: true, concurrency: 8, forceApply: true });
     await refreshCoordinator.rebuildWatchersForState(state);
     await delay(100);
     refreshShelfAndStashInBackground();
@@ -320,7 +325,7 @@ export function activate(context: vscode.ExtensionContext): GoLandVersionControl
 
   const startupRefresh = async (): Promise<void> => {
     git.clearRepositoryCache();
-    const state = await refresh({ forceDiscover: true, concurrency: 8 });
+    const state = await refresh({ forceDiscover: true, concurrency: 8, forceApply: true });
     rebuildWatchersInBackground(state);
     refreshShelfAndStashInBackground();
   };
@@ -591,6 +596,7 @@ function readSettings(): ExtensionSettings {
     confirmDiscard: config.get('confirmDiscard', false),
     debug: config.get('debug', false),
     openDiffAtFirstChange: config.get('openDiffAtFirstChange', true),
+    enableGoDiffDiagnostics: config.get('enableGoDiffDiagnostics', false),
     shelfLocation: config.get('shelfLocation', ''),
     stashIncludeUntracked: config.get('stashIncludeUntracked', true),
     compareBase: config.get('compareBase', 'HEAD')
@@ -777,6 +783,10 @@ function createGitWatcher(basePath: string, pattern: string, onEvent: () => void
 }
 
 function createNodeWatcher(basePath: string, pattern: string, onEvent: () => void): DisposableLike {
+  if (pattern.startsWith('{')) {
+    return createNodeGitWatcher(basePath, onEvent);
+  }
+
   const recursive = pattern.endsWith('/**');
   const target = recursive
     ? path.join(basePath, pattern.slice(0, -3))
@@ -799,4 +809,56 @@ function createNodeWatcher(basePath: string, pattern: string, onEvent: () => voi
   } catch {
     return { dispose: () => undefined };
   }
+}
+
+function createNodeGitWatcher(basePath: string, onEvent: () => void): DisposableLike {
+  const topLevelNames = new Set(
+    GIT_WATCH_PATTERNS
+      .filter((pattern) => !pattern.endsWith('/**'))
+      .map((pattern) => path.basename(pattern))
+  );
+  const recursiveFolders = GIT_WATCH_PATTERNS
+    .filter((pattern) => pattern.endsWith('/**'))
+    .map((pattern) => path.join(basePath, pattern.slice(0, -3)));
+  const watchers: fs.FSWatcher[] = [];
+
+  try {
+    watchers.push(fs.watch(basePath, { persistent: false }, (_eventType, filename) => {
+      const name = filename?.toString();
+      if (
+        !name ||
+        matchesTopLevelGitFile(name, topLevelNames) ||
+        recursiveFolders.some((folder) => name === path.basename(folder))
+      ) {
+        onEvent();
+      }
+    }));
+  } catch {
+    // The VS Code watcher is still active; the Node watcher is a best-effort fallback.
+  }
+
+  for (const folder of recursiveFolders) {
+    try {
+      watchers.push(fs.watch(folder, { persistent: false, recursive: true }, onEvent));
+    } catch {
+      // Missing folders are normal for repos without refs/rebase state.
+    }
+  }
+
+  return {
+    dispose: () => {
+      for (const watcher of watchers) {
+        watcher.close();
+      }
+    }
+  };
+}
+
+function matchesTopLevelGitFile(name: string, topLevelNames: Set<string>): boolean {
+  for (const candidate of topLevelNames) {
+    if (name === candidate || name.startsWith(`${candidate}.`)) {
+      return true;
+    }
+  }
+  return false;
 }

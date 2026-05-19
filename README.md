@@ -2,6 +2,8 @@
 
 GoLand Version Control is a VS Code extension that adds a GoLand-inspired local changes workflow for Git repositories.
 
+Current stable version: `0.2.8`.
+
 ## Features
 
 - Dedicated Activity Bar view with no built-in Git commit box clutter
@@ -13,7 +15,7 @@ GoLand Version Control is a VS Code extension that adds a GoLand-inspired local 
 - Stage, unstage, inline shelve, inline stash selected, inline revert, multi-file discard, open file, open diff, refresh, and change navigation commands
 - Selected Changes panel appears for same-repository multi-file selections with stage, unstage, shelve, stash, and discard toolbar actions
 - Workspace-backed custom changelists for organizing local work without changing Git metadata
-- Extension-managed Shelf view for saving patch sets separately from Git metadata
+- Repository-grouped extension-managed Shelf view for saving patch sets separately from Git metadata
 - Repository-grouped native Git Stash view with lazy file loading for creating, applying, popping, dropping, and reviewing stashes
 
 ## Usage
@@ -32,6 +34,7 @@ GoLand Version Control is a VS Code extension that adds a GoLand-inspired local 
 - `golandVersionControl.confirmDiscard` defaults to `false`
 - `golandVersionControl.debug`
 - `golandVersionControl.openDiffAtFirstChange`
+- `golandVersionControl.enableGoDiffDiagnostics` defaults to `false`
 - `golandVersionControl.shelfLocation`
 - `golandVersionControl.stashIncludeUntracked`
 - `golandVersionControl.compareBase`

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.8
+
+- Latest stable local build.
+- Grouped Shelf entries by repository, matching the Stash view structure.
+- Kept shelf actions scoped to shelf and file rows so repository rows are only grouping headers.
+
+## 0.2.7
+
+- Made selected staged/worktree operations area-aware for partially staged files, including shelf patches, discard, and selected stashes.
+- Kept previous repo changes visible when a targeted Git status refresh fails or times out instead of clearing that repo from Local Changes.
+- Added a timeout around `git status` refreshes so one slow repository cannot block the whole refresh indefinitely.
+- Reduced Git metadata watcher count by using one aggregate watcher per Git metadata base with a lightweight Node fallback.
+- Forced tree repaint on manual/startup/config refresh so display-only settings such as grouping update immediately.
+- Made Go diff diagnostics opt-in with `golandVersionControl.enableGoDiffDiagnostics`.
+
 ## 0.2.6
 
 - Made Local Changes refresh return as soon as repository status is loaded; Shelf, Stash, and Git watcher rebuilds now refresh in the background.

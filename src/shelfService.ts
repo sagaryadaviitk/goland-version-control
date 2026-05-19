@@ -26,12 +26,11 @@ export class ShelfService {
 
   async createShelf(changes: GitChange[], name: string, removeAfterSave: boolean): Promise<ShelfCreateResult> {
     const skippedUntracked = changes.filter((change) => change.area === 'untracked');
-    const tracked = uniqueRepoPathChanges(changes.filter((change) => change.area !== 'untracked'));
+    const tracked = uniqueRepoAreaChanges(changes.filter((change) => change.area !== 'untracked'));
     const shelves: ShelfEntry[] = [];
 
     for (const [repoRoot, repoChanges] of groupByRepo(tracked)) {
-      const paths = repoChanges.map((change) => change.path);
-      const patch = await this.git.diffAgainstHead(repoRoot, paths);
+      const patch = await this.git.diffForChanges(repoRoot, repoChanges);
       if (!patch.trim()) {
         continue;
       }
@@ -52,9 +51,9 @@ export class ShelfService {
         baseCommit: await this.safeHeadCommit(repoRoot),
         createdAt: now,
         updatedAt: now,
-        fileCount: repoChanges.length,
+        fileCount: uniqueShelfFiles(repoChanges).length,
         patchPath,
-        files: repoChanges.map(toShelfFile)
+        files: uniqueShelfFiles(repoChanges)
       });
     }
 
@@ -144,11 +143,11 @@ function toShelfFile(change: GitChange): ShelfFile {
   };
 }
 
-function uniqueRepoPathChanges(changes: GitChange[]): GitChange[] {
+function uniqueRepoAreaChanges(changes: GitChange[]): GitChange[] {
   const seen = new Set<string>();
   const unique: GitChange[] = [];
   for (const change of changes) {
-    const key = `${change.repoRoot}\0${change.path}`;
+    const key = `${change.repoRoot}\0${change.area}\0${change.path}`;
     if (seen.has(key)) {
       continue;
     }
@@ -156,6 +155,20 @@ function uniqueRepoPathChanges(changes: GitChange[]): GitChange[] {
     unique.push(change);
   }
   return unique;
+}
+
+function uniqueShelfFiles(changes: GitChange[]): ShelfFile[] {
+  const seen = new Set<string>();
+  const files: ShelfFile[] = [];
+  for (const change of changes) {
+    const key = `${change.path}\0${change.originalPath ?? ''}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    files.push(toShelfFile(change));
+  }
+  return files;
 }
 
 function groupByRepo(changes: GitChange[]): Map<string, GitChange[]> {

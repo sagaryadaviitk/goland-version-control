@@ -2,11 +2,14 @@ import * as cp from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { buildDiscardPlan } from './gitDiscard';
 import { buildChangeRecords, parsePorcelainStatus } from './gitStatus';
+import { buildAreaAwareDiscardPlan, buildDiffRequests, buildStashPlans } from './gitOperationPlans';
 import { GitChange, RepositoryRef, StashEntry, StashFile, WorkspaceState } from './model';
 import { GitWatchRoot } from './refreshCoordinator';
 import { discoverWorkspaceRepositoryRoots, uniqueRepositories } from './repositoryDiscovery';
+import { RepositoryChanges, mergeRepositoryChanges } from './workspaceStateMerge';
+
+const STATUS_TIMEOUT_MS = 6000;
 
 interface GitExtension {
   getAPI(version: 1): GitApi;
@@ -39,33 +42,25 @@ export class GitService {
     const changesByRepository = await mapLimit(
       targetRepositories,
       options.concurrency ?? 4,
-      async (repo) => {
+      async (repo): Promise<RepositoryChanges> => {
         try {
-          return await this.getChanges(repo, showUntracked);
+          return { repo, changes: await this.getChanges(repo, showUntracked), failed: false };
         } catch (error) {
           this.log?.(`git status failed for ${repo.root}: ${messageFrom(error)}`);
-          return [];
+          return { repo, changes: [], failed: true };
         }
       }
     );
 
-    if (repoRootSet && options.previous) {
-      const updatedRoots = new Set(targetRepositories.map((repo) => repo.root));
-      return {
-        repositories,
-        changes: [
-          ...options.previous.changes.filter((change) => !updatedRoots.has(change.repoRoot)),
-          ...changesByRepository.flat()
-        ].sort(compareChanges)
-      };
-    }
-
-    return { repositories, changes: changesByRepository.flat().sort(compareChanges) };
+    return {
+      repositories,
+      changes: mergeRepositoryChanges(repositories, targetRepositories, changesByRepository, options.previous).sort(compareChanges)
+    };
   }
 
   async getChanges(repo: RepositoryRef, showUntracked: boolean): Promise<GitChange[]> {
     const args = ['status', '--porcelain=v1', '-z', showUntracked ? '--untracked-files=all' : '--untracked-files=no'];
-    const output = await runGit(repo.root, args, this.log, { noOptionalLocks: true });
+    const output = await runGit(repo.root, args, this.log, { noOptionalLocks: true, timeoutMs: STATUS_TIMEOUT_MS });
     return buildChangeRecords(repo, parsePorcelainStatus(repo.root, output));
   }
 
@@ -85,14 +80,18 @@ export class GitService {
     const byRepo = groupPathsByRepo(changes);
 
     for (const [repoRoot, repoChanges] of byRepo) {
-      const plan = buildDiscardPlan(repoChanges);
+      const plan = buildAreaAwareDiscardPlan(repoChanges);
 
-      if (plan.stagedAndWorktreePaths.length > 0) {
-        await runGit(repoRoot, ['restore', '--staged', '--worktree', '--', ...plan.stagedAndWorktreePaths], this.log);
+      if (plan.resetPaths.length > 0) {
+        await runGit(repoRoot, ['restore', '--staged', '--worktree', '--', ...plan.resetPaths], this.log);
       }
 
-      if (plan.worktreePaths.length > 0) {
-        await runGit(repoRoot, ['restore', '--worktree', '--', ...plan.worktreePaths], this.log);
+      if (plan.indexOnlyPaths.length > 0) {
+        await this.discardIndexOnlyPaths(repoRoot, plan.indexOnlyPaths);
+      }
+
+      if (plan.worktreeOnlyPaths.length > 0) {
+        await runGit(repoRoot, ['restore', '--worktree', '--', ...plan.worktreeOnlyPaths], this.log);
       }
 
       if (plan.cleanPaths.length > 0) {
@@ -115,6 +114,20 @@ export class GitService {
 
   async diffAgainstHead(repoRoot: string, paths: string[]): Promise<string> {
     return runGit(repoRoot, ['diff', '--binary', 'HEAD', '--', ...paths], this.log);
+  }
+
+  async diffForChanges(repoRoot: string, changes: GitChange[]): Promise<string> {
+    const patches: string[] = [];
+    for (const request of buildDiffRequests(changes)) {
+      const args = request.area === 'cached'
+        ? ['diff', '--cached', '--binary', 'HEAD', '--', ...request.paths]
+        : ['diff', '--binary', '--', ...request.paths];
+      const patch = await runGit(repoRoot, args, this.log, { noOptionalLocks: true });
+      if (patch.trim()) {
+        patches.push(patch);
+      }
+    }
+    return patches.join('\n');
   }
 
   async applyPatch(repoRoot: string, patchPath: string, paths: string[] = []): Promise<void> {
@@ -155,17 +168,22 @@ export class GitService {
     const byRepo = groupPathsByRepo(changes);
 
     for (const [repoRoot, repoChanges] of byRepo) {
-      const paths = uniquePaths(repoChanges.flatMap(pathsKnownToGit));
-      if (paths.length === 0) {
-        continue;
-      }
+      for (const plan of buildStashPlans(repoChanges, includeUntracked)) {
+        if (plan.mode === 'worktree') {
+          await this.createWorktreeOnlyStash(repoRoot, plan.paths, message);
+          continue;
+        }
 
-      const args = ['stash', 'push'];
-      if (includeUntracked) {
-        args.push('-u');
+        const args = ['stash', 'push'];
+        if (plan.mode === 'staged') {
+          args.push('--staged');
+        }
+        if (plan.includeUntracked) {
+          args.push('-u');
+        }
+        args.push('-m', message, '--', ...plan.paths);
+        await runGit(repoRoot, args, this.log);
       }
-      args.push('-m', message, '--', ...paths);
-      await runGit(repoRoot, args, this.log);
     }
   }
 
@@ -315,10 +333,63 @@ export class GitService {
       this.log?.(`git reset after patch apply failed for ${repoRoot}: ${messageFrom(error)}`);
     }
   }
+
+  private async discardIndexOnlyPaths(repoRoot: string, paths: string[]): Promise<void> {
+    const stagedPatch = await runGit(repoRoot, ['diff', '--cached', '--binary', 'HEAD', '--', ...paths], this.log, { noOptionalLocks: true });
+    if (!stagedPatch.trim()) {
+      await runGit(repoRoot, ['restore', '--staged', '--', ...paths], this.log);
+      return;
+    }
+
+    await runGit(repoRoot, ['apply', '--reverse', '--cached', '--whitespace=nowarn'], this.log, { input: stagedPatch });
+    try {
+      await runGit(repoRoot, ['apply', '--reverse', '--whitespace=nowarn'], this.log, { input: stagedPatch });
+    } catch (error) {
+      this.log?.(`git apply reverse working-tree patch failed for ${repoRoot}: ${messageFrom(error)}`);
+    }
+  }
+
+  private async createWorktreeOnlyStash(repoRoot: string, paths: string[], message: string): Promise<void> {
+    const stagedPatch = await runGit(repoRoot, ['diff', '--cached', '--binary', 'HEAD', '--', ...paths], this.log, { noOptionalLocks: true });
+    let indexPatchRemoved = false;
+    let worktreePatchRemoved = false;
+
+    try {
+      if (stagedPatch.trim()) {
+        await runGit(repoRoot, ['apply', '--reverse', '--cached', '--whitespace=nowarn'], this.log, { input: stagedPatch });
+        indexPatchRemoved = true;
+        await runGit(repoRoot, ['apply', '--reverse', '--whitespace=nowarn'], this.log, { input: stagedPatch });
+        worktreePatchRemoved = true;
+      }
+
+      await runGit(repoRoot, ['stash', 'push', '-m', message, '--', ...paths], this.log);
+    } finally {
+      if (indexPatchRemoved) {
+        await runGit(repoRoot, ['apply', '--cached', '--whitespace=nowarn'], this.log, { input: stagedPatch });
+      }
+      if (worktreePatchRemoved) {
+        await runGit(repoRoot, ['apply', '--whitespace=nowarn'], this.log, { input: stagedPatch });
+      }
+    }
+  }
+
+  private async applyPatchText(repoRoot: string, patch: string, paths: string[] = []): Promise<void> {
+    try {
+      await runGit(repoRoot, ['apply', '--whitespace=nowarn'], this.log, { input: patch });
+      return;
+    } catch (error) {
+      this.log?.(`git apply working-tree patch failed for ${repoRoot}: ${messageFrom(error)}`);
+    }
+
+    await runGit(repoRoot, ['apply', '--3way', '--whitespace=nowarn'], this.log, { input: patch });
+    await this.unstageAppliedPatchPaths(repoRoot, paths);
+  }
 }
 
 interface RunGitOptions {
   noOptionalLocks?: boolean;
+  input?: string;
+  timeoutMs?: number;
 }
 
 export function runGit(
@@ -329,9 +400,10 @@ export function runGit(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
-    cp.execFile('git', ['-C', repoRoot, ...args], {
+    const child = cp.execFile('git', ['-C', repoRoot, ...args], {
       encoding: 'utf8',
       maxBuffer: 25 * 1024 * 1024,
+      timeout: options.timeoutMs,
       env: options.noOptionalLocks
         ? { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
         : process.env
@@ -344,6 +416,9 @@ export function runGit(
 
       resolve(stdout);
     });
+    if (options.input !== undefined) {
+      child.stdin?.end(options.input);
+    }
   });
 }
 
@@ -377,10 +452,6 @@ function groupPathsByRepo(changes: GitChange[]): Map<string, GitChange[]> {
     byRepo.set(change.repoRoot, existing);
   }
   return byRepo;
-}
-
-function pathsKnownToGit(change: GitChange): string[] {
-  return [change.path, change.originalPath].filter(isDefined);
 }
 
 function uniquePaths(paths: string[]): string[] {

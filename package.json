@@ -2,7 +2,7 @@
   "name": "goland-version-control",
   "displayName": "GoLand Version Control",
   "description": "A GoLand-inspired local changes, shelf, and stash workflow for Git changes in VS Code.",
-  "version": "0.2.6",
+  "version": "0.2.8",
   "publisher": "sagaryadaviitk",
   "license": "MIT",
   "repository": {
@@ -500,6 +500,11 @@
           "type": "boolean",
           "default": true,
           "description": "Jump to the first changed hunk after opening a local change diff."
+        },
+        "golandVersionControl.enableGoDiffDiagnostics": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run gofmt diagnostics for Go files opened in GoLand Version Control diff editors."
         },
         "golandVersionControl.shelfLocation": {
           "type": "string",

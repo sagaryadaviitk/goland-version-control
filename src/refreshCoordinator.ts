@@ -37,6 +37,8 @@ export const GIT_WATCH_PATTERNS = [
   'rebase-apply/**'
 ] as const;
 
+export const GIT_WATCH_GLOB = `{${GIT_WATCH_PATTERNS.join(',')}}`;
+
 export class RefreshCoordinator<TState> implements DisposableLike {
   private readonly debounceMs: number;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -137,10 +139,8 @@ export class RefreshCoordinator<TState> implements DisposableLike {
 
     this.watchSignature = signature;
     this.replaceWatchers([]);
-    this.watchers = bases.flatMap((base) =>
-      GIT_WATCH_PATTERNS.map((pattern) =>
-        this.options.createWatcher(base, pattern, () => this.scheduleAutoRefresh())
-      )
+    this.watchers = bases.map((base) =>
+      this.options.createWatcher(base, GIT_WATCH_GLOB, () => this.scheduleAutoRefresh())
     );
   }
 

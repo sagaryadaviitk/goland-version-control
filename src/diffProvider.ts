@@ -14,6 +14,7 @@ interface VirtualGitDocument {
 
 export interface OpenDiffOptions {
   openAtFirstChange?: boolean;
+  enableGoDiagnostics?: boolean;
 }
 
 const SCHEME = 'goland-version-control';
@@ -44,7 +45,11 @@ export class DiffController implements vscode.Disposable {
     const right = this.trackVirtualUri(rightUri(change));
     const title = diffTitle(change);
     await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: false });
-    await this.updateDiffDiagnostics(left, right);
+    if (options.enableGoDiagnostics) {
+      await this.updateDiffDiagnostics(left, right);
+    } else {
+      this.diagnostics.clear();
+    }
 
     if (shouldRevealFirstChange(change, options.openAtFirstChange ?? false)) {
       setTimeout(() => {

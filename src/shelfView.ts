@@ -2,7 +2,15 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { ShelfEntry, ShelfFile } from './model';
 
-export type ShelfTreeNode = ShelfNode | ShelfFileNode;
+export type ShelfTreeNode = ShelfRepositoryNode | ShelfNode | ShelfFileNode;
+
+export interface ShelfRepositoryNode {
+  type: 'repository';
+  id: string;
+  repoRoot: string;
+  repoName: string;
+  shelves: ShelfEntry[];
+}
 
 export interface ShelfNode {
   type: 'shelf';
@@ -20,14 +28,17 @@ export interface ShelfFileNode {
 export class ShelfTreeProvider implements vscode.TreeDataProvider<ShelfTreeNode> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<ShelfTreeNode | undefined | null | void>();
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
-  private shelves: ShelfEntry[] = [];
+  private repositories: ShelfRepositoryNode[] = [];
 
   update(shelves: ShelfEntry[]): void {
-    this.shelves = shelves;
+    this.repositories = groupShelvesByRepository(shelves);
     this.onDidChangeTreeDataEmitter.fire();
   }
 
   getTreeItem(node: ShelfTreeNode): vscode.TreeItem {
+    if (node.type === 'repository') {
+      return repositoryItem(node);
+    }
     if (node.type === 'shelf') {
       return shelfItem(node);
     }
@@ -36,7 +47,11 @@ export class ShelfTreeProvider implements vscode.TreeDataProvider<ShelfTreeNode>
 
   getChildren(node?: ShelfTreeNode): ShelfTreeNode[] {
     if (!node) {
-      return this.shelves.map((shelf) => ({ type: 'shelf', id: `shelf:${shelf.id}`, shelf }));
+      return this.repositories;
+    }
+
+    if (node.type === 'repository') {
+      return node.shelves.map((shelf) => ({ type: 'shelf', id: `shelf:${shelf.id}`, shelf }));
     }
 
     if (node.type === 'shelf') {
@@ -56,9 +71,18 @@ export function isShelfNode(value: unknown): value is ShelfNode {
   return Boolean(value && typeof value === 'object' && (value as { type?: string }).type === 'shelf');
 }
 
+function repositoryItem(node: ShelfRepositoryNode): vscode.TreeItem {
+  const item = new vscode.TreeItem(node.repoName, vscode.TreeItemCollapsibleState.Expanded);
+  item.description = formatShelfCount(node.shelves.length);
+  item.tooltip = node.repoRoot;
+  item.contextValue = 'repository';
+  item.iconPath = new vscode.ThemeIcon('repo');
+  return item;
+}
+
 function shelfItem(node: ShelfNode): vscode.TreeItem {
   const item = new vscode.TreeItem(node.shelf.name, vscode.TreeItemCollapsibleState.Expanded);
-  item.description = `${node.shelf.repoName} ${formatCount(node.shelf.fileCount)}`;
+  item.description = formatFileCount(node.shelf.fileCount);
   item.tooltip = `${node.shelf.repoRoot}\n${node.shelf.createdAt}`;
   item.contextValue = 'shelf';
   item.iconPath = new vscode.ThemeIcon('archive');
@@ -80,6 +104,31 @@ function shelfFileItem(node: ShelfFileNode): vscode.TreeItem {
   return item;
 }
 
-function formatCount(count: number): string {
+function groupShelvesByRepository(shelves: ShelfEntry[]): ShelfRepositoryNode[] {
+  const repositories = new Map<string, ShelfRepositoryNode>();
+  for (const shelf of shelves) {
+    const existing = repositories.get(shelf.repoRoot);
+    if (existing) {
+      existing.shelves.push(shelf);
+      continue;
+    }
+
+    repositories.set(shelf.repoRoot, {
+      type: 'repository',
+      id: `repo:${shelf.repoRoot}`,
+      repoRoot: shelf.repoRoot,
+      repoName: shelf.repoName,
+      shelves: [shelf]
+    });
+  }
+
+  return [...repositories.values()].sort((left, right) => left.repoName.localeCompare(right.repoName));
+}
+
+function formatFileCount(count: number): string {
   return count === 1 ? '1 file' : `${count} files`;
+}
+
+function formatShelfCount(count: number): string {
+  return count === 1 ? '1 shelf' : `${count} shelves`;
 }
